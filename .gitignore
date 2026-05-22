@@ -55,3 +55,11 @@ pia-tutorial/
 优化2-执行计划.md
 week5.md
 week6.md
+
+# --- Local-only: docs, legacy code, lab lines, README screenshots ---
+doc/
+docs/
+code/
+g1-5s-pl/
+g2-2s-pl/
+images/
