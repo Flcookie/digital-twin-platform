@@ -49,3 +49,9 @@ adafruit_pn532/
 buildhat/
 ev3dev/
 pia-tutorial/
+
+# --- Local planning / meeting notes (do not publish) ---
+优化2.md
+优化2-执行计划.md
+week5.md
+week6.md
