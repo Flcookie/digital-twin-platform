@@ -1,0 +1,626 @@
+"""HISTORY block: latest session (or post-import target), CSV import, replay, export."""
+from __future__ import annotations
+
+import csv
+import io
+import os
+import time
+
+import streamlit as st
+
+import mqtt_backend
+import neo4j_backend
+import process_control
+import recording
+import ui_replay_panel
+from paths import PROJECT_ROOT
+
+# Selectbox 内部值；展示文案为「--Select Session--」
+_HIST_SESSION_PLACEHOLDER = "__hist_session_placeholder__"
+_SESSION_SELECT_DISPLAY = "--Select Session--"
+
+
+def _import_feedback_key(kp: str) -> str:
+    return "{}_import_feedback".format(kp)
+
+
+def _history_panel_css(kp: str) -> str:
+    """统一工具条按钮高度/字号；压缩上传区；Import 主按钮蓝色（与 Start Programs 一致）。"""
+    k_import = "{}_import_btn".format(kp)
+    k_go = "{}_replay_toggle".format(kp)
+    k_dl1 = "{}_dl_log".format(kp)
+    k_dl2 = "{}_dl_kpi".format(kp)
+    k_spd = "{}_replay_spd".format(kp)
+    k_spd_row = "{}_speed_row".format(kp)
+    k_sess = "{}_history_session_id".format(kp)
+    k_toolbar = "{}_hist_toolbar".format(kp)
+    k_up = "{}_csv_up".format(kp)
+    k_d1 = "{}_dup_skip".format(kp)
+    k_d2 = "{}_dup_force".format(kp)
+    k_import_col = "{}_import_col".format(kp)
+    k_import_block = "{}_import_block".format(kp)
+    return """
+<style>
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_d1} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_d2} button {{
+        min-height: 38px !important;
+        max-height: 38px !important;
+        height: 38px !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.01em !important;
+        padding: 0 14px !important;
+        border-radius: 8px !important;
+        box-sizing: border-box !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button {{
+        background: #e7f5ff !important;
+        border: 1px solid #1971c2 !important;
+        color: #1864ab !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button {{
+        background: #e3f2fd !important;
+        border: 1px solid #1565c0 !important;
+        color: #1565c0 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button {{
+        height: 34px !important;
+        min-height: 34px !important;
+        max-height: 34px !important;
+        font-size: 13px !important;
+        font-weight: 650 !important;
+        background: #f8f9fa !important;
+        border: 1px solid #dee2e6 !important;
+        color: #374151 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button:hover {{
+        border-color: #0d47a1 !important;
+        color: #0d47a1 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-testid="stSelectbox"] {{
+        min-height: 32px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-baseweb="select"] > div {{
+        min-height: 32px !important;
+        font-size: 12px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] .hist-speed-inline-lbl {{
+        display: inline-block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 16px !important;
+        font-weight: 400 !important;
+        color: #546e7a !important;
+        white-space: nowrap !important;
+        line-height: 38px !important;
+        vertical-align: middle !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_spd_row} > div > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"],
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} > div > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {{
+        gap: 8px !important;
+        align-items: center !important;
+    }}
+    div[data-testid="stMainBlockContainer"] .hist-speed-compact .hist-speed-inline-lbl {{
+        line-height: 32px !important;
+        font-size: 15px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [data-testid="stSelectbox"] {{
+        min-height: 40px !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [data-baseweb="select"] {{
+        width: 100% !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [data-baseweb="select"] > div {{
+        min-height: 40px !important;
+        font-size: 16px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [role="listbox"] [role="option"] {{
+        font-size: 16px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} {{
+        margin-bottom: 2px !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stMainBlockContainer"] .hist-select-label {{
+        font-family: var(--sans) !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        color: #546e7a !important;
+        margin: 0 0 6px 0 !important;
+        line-height: 1.2 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} {{
+        margin-top: 10px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] hr.hist-section-divider {{
+        border: none !important;
+        border-top: 1px solid #e0e0e0 !important;
+        margin: 1rem 0 0.85rem 0 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploader"] {{
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
+        padding: 8px 10px !important;
+        min-height: 48px !important;
+        box-sizing: border-box !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploader"] section {{
+        padding: 0 !important;
+        border: none !important;
+        background: transparent !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzone"] {{
+        min-height: 32px !important;
+        max-height: 42px !important;
+        padding: 0 !important;
+        align-items: center !important;
+        border: none !important;
+        background: transparent !important;
+        gap: 10px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzoneInstructions"] {{
+        font-size: 12px !important;
+        color: #64748b !important;
+        opacity: 0.72 !important;
+        line-height: 1.2 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzoneInstructions"] small {{
+        display: none !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzone"] button {{
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        padding: 5px 12px !important;
+        min-height: 32px !important;
+        border-radius: 7px !important;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #334155 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzone"] button:hover {{
+        border-color: #94a3b8 !important;
+        background: #f1f5f9 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import_block} {{
+        margin: 0 0 0.1rem 0 !important;
+    }}
+    /* Import button column above upload dropzone if overlap (stacked layout uses this less). */
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import_col} {{
+        position: relative !important;
+        z-index: 2 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import_col} button {{
+        min-height: 48px !important;
+        height: 48px !important;
+        border-radius: 8px !important;
+    }}
+    div[data-testid="stMainBlockContainer"] .hist-import-status-line {{
+        font-size: 0.9rem !important;
+        margin: 0.35rem 0 0 0 !important;
+        line-height: 1.35 !important;
+    }}
+</style>
+""".format(
+        k_import=k_import,
+        k_go=k_go,
+        k_dl1=k_dl1,
+        k_dl2=k_dl2,
+        k_spd=k_spd,
+        k_spd_row=k_spd_row,
+        k_sess=k_sess,
+        k_toolbar=k_toolbar,
+        k_up=k_up,
+        k_d1=k_d1,
+        k_d2=k_d2,
+        k_import_col=k_import_col,
+        k_import_block=k_import_block,
+    )
+
+
+def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) -> None:
+    """All widget keys are prefixed to avoid clashes when embedded.
+
+    When ``disabled`` is True (e.g. Live data source or no config selected),
+    controls are shown but non-interactive.
+    """
+    kp = key_prefix
+    d = disabled
+    if d:
+        _dup_k = "{}_dup_import".format(kp)
+        if _dup_k in st.session_state:
+            del st.session_state[_dup_k]
+        st.session_state.pop(_import_feedback_key(kp), None)
+    ui_replay_panel.ensure_replay_session_state()
+
+    st.markdown(_history_panel_css(kp), unsafe_allow_html=True)
+
+    status = neo4j_backend.neo4j_status()
+    if not status.get("connected"):
+        st.error("Database not connected: **{}**".format(status.get("error", "unknown")))
+        return
+
+    _sess_key = "{}_history_session_id".format(kp)
+    _pend = st.session_state.pop("{}_pending_select_session".format(kp), None)
+    sessions = neo4j_backend.list_sessions_enriched(120)
+    # Hide empty+open artifacts (typically aborted/placeholder sessions) from History selector.
+    sessions = [
+        s
+        for s in sessions
+        if not (
+            int(s.get("event_count") or 0) <= 0
+            and str(s.get("status_badge") or "").strip().lower() == "open"
+        )
+    ]
+    sel_ids = [s["id"] for s in sessions]
+    id_to_label = {s["id"]: s.get("label") or s["id"] for s in sessions}
+
+    if _pend and isinstance(_pend, str) and _pend in sel_ids:
+        st.session_state[_sess_key] = _pend
+    elif not sel_ids:
+        st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
+    else:
+        _cur = st.session_state.get(_sess_key)
+        if isinstance(_cur, str) and (_cur in sel_ids or _cur == _HIST_SESSION_PLACEHOLDER):
+            pass
+        else:
+            st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
+
+    _rp = st.session_state.get("replay_proc")
+    if _rp is not None and _rp.poll() is not None:
+        ui_replay_panel._clear_replay_child_and_temp_file()
+
+    speed_presets = {
+        "1×": 1.0,
+        "2×": 2.0,
+        "5×": 5.0,
+        "10×": 10.0,
+        "20×": 20.0,
+        "50×": 50.0,
+    }
+    _rec_on = recording.is_recording()
+    _replay_live = (
+        st.session_state.get("replay_proc") is not None
+        and st.session_state.replay_proc.poll() is None
+    )
+
+    _sess_options = (
+        [_HIST_SESSION_PLACEHOLDER] + sel_ids if sel_ids else [_HIST_SESSION_PLACEHOLDER]
+    )
+
+    def _format_session_option(sid: str) -> str:
+        if sid == _HIST_SESSION_PLACEHOLDER:
+            return _SESSION_SELECT_DISPLAY
+        return id_to_label.get(sid, sid)
+
+    st.selectbox(
+        "session",
+        _sess_options,
+        format_func=_format_session_option,
+        key=_sess_key,
+        label_visibility="collapsed",
+        disabled=d or _replay_live or not sel_ids,
+        help="Choose a Neo4j session for replay and export.",
+    )
+
+    _raw_sel = st.session_state.get(_sess_key)
+    chosen_id: str | None = (
+        _raw_sel
+        if isinstance(_raw_sel, str) and _raw_sel in sel_ids
+        else None
+    )
+    if not d:
+        st.session_state["dt_resolved_session"] = chosen_id
+
+    _exp_disabled = d or not chosen_id
+    ev_csv = b""
+    kpi_csv = b""
+    if chosen_id and not d:
+        ev_csv = neo4j_backend.export_session_events_csv(chosen_id).encode("utf-8")
+        kpi_csv = neo4j_backend.export_session_kpi_log_csv(chosen_id).encode("utf-8")
+
+    _can_start = not d and bool(chosen_id) and not _rec_on and not _replay_live
+
+    if not sel_ids:
+        st.caption("No sessions yet — import a CSV in the section below.")
+
+    with st.container(key="{}_hist_toolbar".format(kp)):
+        c_speed, c2, c3, c4 = st.columns(
+            [0.7, 1.4, 1.0, 1.0],
+            gap="small",
+            vertical_alignment="center",
+        )
+        with c_speed:
+            with st.container(key="{}_speed_row".format(kp)):
+                _sl, _ss = st.columns(
+                    [0.42, 1.0],
+                    gap="small",
+                    vertical_alignment="center",
+                )
+                with _sl:
+                    st.markdown(
+                        '<span class="hist-speed-inline-lbl hist-speed-compact">Speed</span>',
+                        unsafe_allow_html=True,
+                    )
+                with _ss:
+                    sp_label = st.selectbox(
+                        "Speed",
+                        list(speed_presets.keys()),
+                        index=3,
+                        key="{}_replay_spd".format(kp),
+                        label_visibility="collapsed",
+                        disabled=d or _replay_live,
+                        help="Playback speed (before Start Replay)",
+                    )
+        speed = speed_presets[sp_label]
+        with c2:
+            if _replay_live:
+                if st.button(
+                    "\u23f9 Stop Replay",
+                    key="{}_replay_toggle".format(kp),
+                    disabled=d,
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    ui_replay_panel._clear_replay_child_and_temp_file()
+                    st.rerun()
+            else:
+                if st.button(
+                    "\u25b6 Start Replay",
+                    key="{}_replay_toggle".format(kp),
+                    disabled=not _can_start,
+                    use_container_width=True,
+                ):
+                    evs = neo4j_backend.fetch_session_events_log_format(chosen_id)
+                    if not evs:
+                        st.error("No events in this session.")
+                    else:
+                        ui_replay_panel._clear_replay_child_and_temp_file()
+                        _ok_ms, _ms_msg = process_control.ensure_main_service_replay()
+                        if not _ok_ms:
+                            st.error(_ms_msg)
+                        else:
+                            _abort = False
+                            _local = os.path.normpath(
+                                os.path.join(PROJECT_ROOT, "config_local.json")
+                            )
+                            if os.path.isfile(_local):
+                                try:
+                                    mqtt_backend.switch_config_file("config_local.json")
+                                    time.sleep(2)
+                                except Exception as e:
+                                    st.error(
+                                        "Failed to switch local config: {}".format(e)
+                                    )
+                                    _abort = True
+                            if not _abort:
+                                ui_replay_panel._reset_replay_downstream_for_new_run()
+                                try:
+                                    st.session_state.replay_proc = (
+                                        mqtt_backend.run_replay_session_subprocess(
+                                            chosen_id, speed
+                                        )
+                                    )
+                                    st.caption(
+                                        "Replay started · PID **{}**".format(
+                                            st.session_state.replay_proc.pid
+                                        )
+                                    )
+                                except Exception as ex:
+                                    st.error(str(ex))
+
+        with c3:
+            st.download_button(
+                "↓  Export Event Log",
+                data=ev_csv if ev_csv else b"",
+                file_name="session_log_{}.csv".format(chosen_id or "none"),
+                mime="text/csv",
+                key="{}_dl_log".format(kp),
+                use_container_width=True,
+                help="Events: time, component_id, part_id, activity",
+                disabled=_exp_disabled,
+            )
+        with c4:
+            st.download_button(
+                "↓  Export KPI Report",
+                data=kpi_csv if kpi_csv else b"",
+                file_name="kpi_log_{}.csv".format(chosen_id or "none"),
+                mime="text/csv",
+                key="{}_dl_kpi".format(kp),
+                use_container_width=True,
+                help="KPI long table: system / stage / station",
+                disabled=_exp_disabled,
+            )
+
+    if _replay_live:
+        st.caption(
+            "Replaying · PID **{}**".format(st.session_state.replay_proc.pid)
+        )
+
+    st.markdown('<hr class="hist-section-divider" />', unsafe_allow_html=True)
+
+    st.markdown(
+        '<p class="hist-select-label">Import CSV</p>',
+        unsafe_allow_html=True,
+    )
+    dup_key = "{}_dup_import".format(kp)
+    _ifb = _import_feedback_key(kp)
+    _dup_wait = dup_key in st.session_state
+    do_import = False
+    with st.container(key="{}_import_block".format(kp)):
+        _imp_l, _imp_r = st.columns(
+            [2.2, 1.0], gap="small", vertical_alignment="center"
+        )
+        with _imp_l:
+            up = st.file_uploader(
+                "CSV file",
+                type=["csv"],
+                key="{}_csv_up".format(kp),
+                label_visibility="collapsed",
+                disabled=d,
+            )
+        with _imp_r:
+            with st.container(key="{}_import_col".format(kp)):
+                if _dup_wait:
+                    st.caption("Duplicate session — see options below.")
+                do_import = st.button(
+                    "Import to Database",
+                    key="{}_import_btn".format(kp),
+                    use_container_width=True,
+                    disabled=d or _dup_wait,
+                )
+
+    if do_import:
+        with st.spinner("Importing..."):
+            st.session_state.pop(_ifb, None)
+            if not up:
+                st.session_state[_ifb] = {
+                    "level": "error",
+                    "text": "Import failed. Choose a CSV file first.",
+                }
+            else:
+                rows = []
+                try:
+                    text = io.TextIOWrapper(up, encoding="utf-8", errors="replace")
+                    rows = list(csv.DictReader(text))
+                except Exception as ex:
+                    st.session_state[_ifb] = {
+                        "level": "error",
+                        "text": "Import failed. {}".format(ex),
+                    }
+                    rows = []
+                if not rows and not st.session_state.get(_ifb):
+                    st.session_state[_ifb] = {
+                        "level": "error",
+                        "text": "Import failed. The file has no data rows.",
+                    }
+                elif rows:
+                    missing = [
+                        r
+                        for r in rows
+                        if not str(r.get("time") or "").strip()
+                        or "activity" not in r
+                        or "component_id" not in r
+                    ]
+                    if missing:
+                        st.session_state[_ifb] = {
+                            "level": "error",
+                            "text": (
+                                "Import failed. Each row must include time, component_id, "
+                                "part_id, and activity."
+                            ),
+                        }
+                    else:
+                        sorted_rows = sorted(
+                            rows,
+                            key=lambda r: neo4j_backend._parse_event_time_key(
+                                r.get("time")
+                            ),
+                        )
+                        first_raw = str(sorted_rows[0].get("time") or "").strip()
+                        n = len(sorted_rows)
+                        dup_info = neo4j_backend.find_csv_import_duplicate_info(
+                            first_raw, n
+                        )
+                        if dup_info:
+                            st.session_state.pop(_ifb, None)
+                            st.session_state[dup_key] = {
+                                "rows": sorted_rows,
+                                "filename": up.name or "uploaded.csv",
+                                "dup_info": dup_info,
+                            }
+                            st.rerun()
+                        else:
+                            try:
+                                _sid, n_ev, _ = neo4j_backend.import_csv_session(
+                                    sorted_rows,
+                                    up.name or "uploaded.csv",
+                                    force_new_id=False,
+                                    display_name=None,
+                                )
+                                st.session_state[
+                                    "{}_pending_select_session".format(kp)
+                                ] = _sid
+                                st.session_state[_ifb] = {
+                                    "level": "success",
+                                    "text": "Import successful. {} event(s) imported.".format(
+                                        n_ev
+                                    ),
+                                }
+                                st.rerun()
+                            except Exception as ex:
+                                st.session_state[_ifb] = {
+                                    "level": "error",
+                                    "text": "Import failed. {}".format(ex),
+                                }
+
+    _fbv = st.session_state.get(_ifb)
+    if isinstance(_fbv, dict) and str(_fbv.get("text") or "").strip():
+        _lvl = str(_fbv.get("level") or "info")
+        _ft = str(_fbv["text"])
+        if _lvl == "success":
+            st.success(_ft, icon="✅")
+        elif _lvl == "error":
+            st.error(_ft, icon="❌")
+        else:
+            st.info(_ft, icon="ℹ️")
+
+    if dup_key in st.session_state:
+        payload = st.session_state[dup_key]
+        di = payload.get("dup_info") or {}
+        n = len(payload.get("rows") or [])
+        st.warning(
+            "This dataset already exists as session **`{}`** "
+            "(same first event time and **{}** rows). "
+            "Session start_time: `{}`.".format(
+                di.get("id", "—"),
+                n,
+                di.get("start_time") or "—",
+            )
+        )
+        b1, b2 = st.columns(2)
+        if b1.button(
+            "Skip",
+            key="{}_dup_skip".format(kp),
+            use_container_width=True,
+            disabled=d,
+        ):
+            del st.session_state[dup_key]
+            st.session_state.pop(_ifb, None)
+            st.rerun()
+        if b2.button(
+            "Import as new session anyway",
+            key="{}_dup_force".format(kp),
+            use_container_width=True,
+            disabled=d,
+        ):
+            p = st.session_state.pop(dup_key, None)
+            if p:
+                with st.spinner("Importing..."):
+                    try:
+                        _sid, n_ev, _ = neo4j_backend.import_csv_session(
+                            p["rows"],
+                            p["filename"],
+                            force_new_id=True,
+                            display_name=None,
+                        )
+                        st.session_state["{}_pending_select_session".format(kp)] = _sid
+                        st.session_state[_ifb] = {
+                            "level": "success",
+                            "text": "Import successful. {} event(s) imported.".format(
+                                n_ev
+                            ),
+                        }
+                        st.rerun()
+                    except Exception as ex:
+                        st.session_state[_ifb] = {
+                            "level": "error",
+                            "text": "Import failed. {}".format(ex),
+                        }
+                        st.rerun()

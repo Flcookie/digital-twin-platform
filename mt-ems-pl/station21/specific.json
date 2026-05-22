@@ -1,0 +1,46 @@
+{
+    "component_id" : "station21",
+    "operation_number": 2,
+    "previous_operation_numbers": [1, 2],
+    "component_start_delay": 1.5,
+
+    "number_of_cycles": 1,
+    "processing_time_distribution": {
+        "type": "DETERMINISTIC",
+        "parameters": [38.0]
+    },
+    "failure_probability": 0.108,
+    "repair_time_distribution": {
+        "type": "EXPONENTIAL",
+        "parameters": [0.010010]
+    },
+    "truly_good_probability": 0.999,
+    "falsely_good_probability": 0.0,
+    "truly_bad_probability": 0.001,
+    "falsely_bad_probability": 0.0,
+    "rework_probability": 0.0,
+
+    "input_sensor_port": "/dev/ttyUSB0",
+    "input_sensor_baudrate": 115200,
+
+    "machine_sensor_port": "/dev/ttyUSB1",
+    "machine_sensor_baudrate": 115200,
+
+    "cutter_motor_port": "A",
+    "cutter_motor_plimit": 1.0,
+    "cutter_motor_speed": 30.0,
+    "cutter_motor_run_degrees": 210,
+    "cutter_motor_start_delay": 0.2,
+    "cutter_motor_end_delay": 0.5,
+
+    "pusher_motor_port": "B",
+    "pusher_motor_plimit": 1.0,
+    "pusher_motor_speed": -30.0,
+    "pusher_motor_run_degrees": [240, -330, -330],
+    "pusher_motor_start_delays": [0.5, 0.0, 0.0],
+    "pusher_motor_end_delays": [0.0, 1.0, 0.5],
+
+    "machine_motor_port": "C",
+    "machine_motor_plimit": 1.0,
+    "machine_motor_speeds": [-25.0, 26.0]
+}

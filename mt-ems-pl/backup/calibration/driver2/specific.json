@@ -1,0 +1,12 @@
+{
+    "component_id" : "driver2",
+    "component_start_delay": 0.0,
+
+    "line_pair_ports": ["A", "B"],
+    "line_pair_plimit": 1.0,
+    "line_pair_speeds": [-25.0, 25.85],
+
+    "bridge_motor_port": "C",
+    "bridge_motor_plimit": 1.0,
+    "bridge_motor_speed": -25.0
+}

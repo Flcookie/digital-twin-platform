@@ -1,0 +1,26 @@
+{
+    "component_start_order": [
+        [
+            "corner1", "corner2", "driver1", "driver2", "driver3", "driver4"
+        ],
+        [
+            "splitter5", "splitters12", "splitters34", "station11", "station21",
+            "station22", "station31",   "station41",   "station51", "station52",
+            "station61", "station71"
+        ]
+    ],
+    "component_stop_order": [
+        [
+            "splitter5", "splitters12", "splitters34", "station11", "station21",
+            "station22", "station31",   "station41",   "station51", "station52",
+            "station61", "station71"
+        ],
+        [
+            "corner1", "corner2", "driver1", "driver2", "driver3", "driver4"
+        ]
+    ],
+    "component_free_interval": 0.1,
+
+    "server_hostname": "server0",
+    "server_mqtt_port": 1883
+}

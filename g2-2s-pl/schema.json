@@ -1,0 +1,10 @@
+{
+    "part_id": {
+        "index": 0,
+        "type": "str"
+    },
+    "part_type": {
+        "index": 1,
+        "type": "str"
+    }
+}
