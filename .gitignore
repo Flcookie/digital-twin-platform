@@ -32,9 +32,8 @@ main_service.pid
 .control_action_history.jsonl
 start_programs_progress.json
 
-# event-logs: keep folder, ignore generated data
-event-logs/*
-!event-logs/.gitkeep
+# Runtime log output (local only)
+event-logs/
 
 # --- OS ---
 Thumbs.db
@@ -63,3 +62,5 @@ code/
 g1-5s-pl/
 g2-2s-pl/
 images/
+mt-ems-pl/
+scripts/
