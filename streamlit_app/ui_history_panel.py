@@ -25,7 +25,7 @@ def _import_feedback_key(kp: str) -> str:
 
 
 def _history_panel_css(kp: str) -> str:
-    """统一工具条按钮高度/字号；压缩上传区；Import 主按钮蓝色（与 Start Programs 一致）。"""
+    """统一工具条按钮高度/白底描边；压缩上传区；无图标前缀。"""
     k_import = "{}_import_btn".format(kp)
     k_go = "{}_replay_toggle".format(kp)
     k_dl1 = "{}_dl_log".format(kp)
@@ -41,77 +41,88 @@ def _history_panel_css(kp: str) -> str:
     k_import_block = "{}_import_block".format(kp)
     return """
 <style>
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} [data-testid="stHorizontalBlock"] > [data-testid="column"] {{
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} button,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} [data-testid="stDownloadButton"] > button {{
+        width: 100% !important;
+        min-height: var(--cp-btn-h, 46px) !important;
+        max-height: var(--cp-btn-h, 46px) !important;
+        height: var(--cp-btn-h, 46px) !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.01em !important;
+        padding: 0 10px !important;
+        border-radius: 8px !important;
+        box-sizing: border-box !important;
+        box-shadow: none !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        background: #ffffff !important;
+        border: 1px solid #dee2e6 !important;
+        border-bottom: 1px solid #dee2e6 !important;
+        color: #374151 !important;
+    }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button,
     div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button,
     div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button,
     div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button,
     div[data-testid="stMainBlockContainer"] div.st-key-{k_d1} button,
     div[data-testid="stMainBlockContainer"] div.st-key-{k_d2} button {{
-        min-height: 38px !important;
-        max-height: 38px !important;
-        height: 38px !important;
-        font-size: 13px !important;
-        font-weight: 700 !important;
+        width: 100% !important;
+        min-height: var(--cp-btn-h, 46px) !important;
+        max-height: var(--cp-btn-h, 46px) !important;
+        height: var(--cp-btn-h, 46px) !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
         letter-spacing: 0.01em !important;
-        padding: 0 14px !important;
+        padding: 0 10px !important;
         border-radius: 8px !important;
         box-sizing: border-box !important;
         box-shadow: none !important;
-    }}
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button {{
-        background: #e7f5ff !important;
-        border: 1px solid #1971c2 !important;
-        border-bottom: 1px solid #1971c2 !important;
-        color: #1864ab !important;
-    }}
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button {{
-        background: #e3f2fd !important;
-        border: 1px solid #1565c0 !important;
-        border-bottom: 1px solid #1565c0 !important;
-        color: #1565c0 !important;
-    }}
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button,
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button {{
-        height: 34px !important;
-        min-height: 34px !important;
-        max-height: 34px !important;
-        font-size: 13px !important;
-        font-weight: 650 !important;
-        background: #f8f9fa !important;
+        background: #ffffff !important;
         border: 1px solid #dee2e6 !important;
         border-bottom: 1px solid #dee2e6 !important;
         color: #374151 !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button:hover:not(:disabled),
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button:hover:not(:disabled) {{
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button:hover:not(:disabled),
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button:hover:not(:disabled),
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button:hover:not(:disabled),
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_d1} button:hover:not(:disabled),
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_d2} button:hover:not(:disabled) {{
+        background: #f8f9fa !important;
+        border-color: #cbd5e1 !important;
+        border-bottom-color: #cbd5e1 !important;
         box-shadow: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-testid="stSelectbox"] {{
-        min-height: 32px !important;
+        min-height: var(--cp-btn-h, 46px) !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-baseweb="select"] {{
+        width: 100% !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-baseweb="select"] > div {{
-        min-height: 32px !important;
-        font-size: 12px !important;
-    }}
-    div[data-testid="stMainBlockContainer"] .hist-speed-inline-lbl {{
-        display: inline-block !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        font-size: 16px !important;
-        font-weight: 400 !important;
-        color: #546e7a !important;
-        white-space: nowrap !important;
-        line-height: 38px !important;
-        vertical-align: middle !important;
+        min-height: var(--cp-btn-h, 46px) !important;
+        height: var(--cp-btn-h, 46px) !important;
+        font-size: 15px !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_spd_row} > div > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"],
     div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} > div > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {{
         gap: 8px !important;
-        align-items: center !important;
+        align-items: flex-start !important;
     }}
-    div[data-testid="stMainBlockContainer"] .hist-speed-compact .hist-speed-inline-lbl {{
-        line-height: 32px !important;
-        font-size: 15px !important;
+    div[data-testid="stMainBlockContainer"] .hist-replay-status-line {{
+        font-size: 13px !important;
+        color: #64748b !important;
+        margin: 4px 0 0 0 !important;
+        min-height: 18px !important;
+        line-height: 1.35 !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [data-testid="stSelectbox"] {{
         min-height: 40px !important;
@@ -122,10 +133,10 @@ def _history_panel_css(kp: str) -> str:
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [data-baseweb="select"] > div {{
         min-height: 40px !important;
-        font-size: 16px !important;
+        font-size: 15px !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} [role="listbox"] [role="option"] {{
-        font-size: 16px !important;
+        font-size: 15px !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_sess} {{
         margin-bottom: 2px !important;
@@ -133,9 +144,9 @@ def _history_panel_css(kp: str) -> str:
     }}
     div[data-testid="stMainBlockContainer"] .hist-select-label {{
         font-family: var(--sans) !important;
-        font-size: 16px !important;
+        font-size: 15px !important;
         font-weight: 600 !important;
-        color: #546e7a !important;
+        color: #64748b !important;
         margin: 0 0 6px 0 !important;
         line-height: 1.2 !important;
     }}
@@ -170,7 +181,7 @@ def _history_panel_css(kp: str) -> str:
         gap: 10px !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzoneInstructions"] {{
-        font-size: 12px !important;
+        font-size: 13px !important;
         color: #64748b !important;
         opacity: 0.72 !important;
         line-height: 1.2 !important;
@@ -179,7 +190,7 @@ def _history_panel_css(kp: str) -> str:
         display: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzone"] button {{
-        font-size: 12px !important;
+        font-size: 13px !important;
         font-weight: 600 !important;
         padding: 5px 12px !important;
         min-height: 32px !important;
@@ -205,12 +216,14 @@ def _history_panel_css(kp: str) -> str:
         z-index: 2 !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import_col} button {{
-        min-height: 48px !important;
-        height: 48px !important;
+        min-height: var(--cp-btn-h, 46px) !important;
+        max-height: var(--cp-btn-h, 46px) !important;
+        height: var(--cp-btn-h, 46px) !important;
+        width: 100% !important;
         border-radius: 8px !important;
     }}
     div[data-testid="stMainBlockContainer"] .hist-import-status-line {{
-        font-size: 0.9rem !important;
+        font-size: 15px !important;
         margin: 0.35rem 0 0 0 !important;
         line-height: 1.35 !important;
     }}
@@ -365,47 +378,34 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
 
     with st.container(key="{}_hist_toolbar".format(kp)):
         c_speed, c2, c3, c4 = st.columns(
-            [0.7, 1.4, 1.0, 1.0],
+            4,
             gap="small",
-            vertical_alignment="center",
+            vertical_alignment="top",
         )
         with c_speed:
-            with st.container(key="{}_speed_row".format(kp)):
-                _sl, _ss = st.columns(
-                    [0.42, 1.0],
-                    gap="small",
-                    vertical_alignment="center",
-                )
-                with _sl:
-                    st.markdown(
-                        '<span class="hist-speed-inline-lbl hist-speed-compact">Speed</span>',
-                        unsafe_allow_html=True,
-                    )
-                with _ss:
-                    sp_label = st.selectbox(
-                        "Speed",
-                        list(speed_presets.keys()),
-                        index=3,
-                        key="{}_replay_spd".format(kp),
-                        label_visibility="collapsed",
-                        disabled=d or _replay_live,
-                        help="Playback speed (before Start Replay)",
-                    )
+            sp_label = st.selectbox(
+                "Speed",
+                list(speed_presets.keys()),
+                index=3,
+                key="{}_replay_spd".format(kp),
+                label_visibility="collapsed",
+                disabled=d or _replay_live,
+                help="Playback speed (before Start Replay)",
+            )
         speed = speed_presets[sp_label]
         with c2:
             if _replay_live:
                 if st.button(
-                    "\u23f9 Stop Replay",
+                    "Stop Replay",
                     key="{}_replay_toggle".format(kp),
                     disabled=d,
                     use_container_width=True,
-                    type="primary",
                 ):
                     ui_replay_panel._clear_replay_child_and_temp_file()
                     st.rerun()
             else:
                 if st.button(
-                    "\u25b6 Start Replay",
+                    "Start Replay",
                     key="{}_replay_toggle".format(kp),
                     disabled=not _can_start,
                     use_container_width=True,
@@ -440,17 +440,22 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                                             chosen_id, speed
                                         )
                                     )
-                                    st.caption(
-                                        "Replay started · PID **{}**".format(
-                                            st.session_state.replay_proc.pid
-                                        )
-                                    )
                                 except Exception as ex:
                                     st.error(str(ex))
+            _rp_show = st.session_state.get("replay_proc")
+            if _rp_show is not None and _rp_show.poll() is None:
+                st.markdown(
+                    (
+                        '<p class="hist-replay-status-line">'
+                        "Replay started · PID <strong>{}</strong>"
+                        "</p>"
+                    ).format(_rp_show.pid),
+                    unsafe_allow_html=True,
+                )
 
         with c3:
             st.download_button(
-                "↓  Export Event Log",
+                "Export Event Log",
                 data=ev_csv if ev_csv else b"",
                 file_name="session_log_{}.csv".format(chosen_id or "none"),
                 mime="text/csv",
@@ -461,7 +466,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
             )
         with c4:
             st.download_button(
-                "↓  Export KPI Report",
+                "Export KPI Report",
                 data=kpi_csv if kpi_csv else b"",
                 file_name="kpi_log_{}.csv".format(chosen_id or "none"),
                 mime="text/csv",
@@ -471,17 +476,8 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                 disabled=_exp_disabled,
             )
 
-    if _replay_live:
-        st.caption(
-            "Replaying · PID **{}**".format(st.session_state.replay_proc.pid)
-        )
-
     st.markdown('<hr class="hist-section-divider" />', unsafe_allow_html=True)
 
-    st.markdown(
-        '<p class="hist-select-label">Import CSV</p>',
-        unsafe_allow_html=True,
-    )
     dup_key = "{}_dup_import".format(kp)
     _ifb = _import_feedback_key(kp)
     _dup_wait = dup_key in st.session_state

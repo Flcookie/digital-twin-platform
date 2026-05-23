@@ -563,6 +563,69 @@ def test_utilization_counts_fail_as_occupied_time():
     assert s["utilization"]["station41"] > 0.9
 
 
+def test_block_event_transitions_busy_to_blocked():
+    """PROCESS→BLOCK wait is BLOCKED, not extended BUSY (优化5 §2.1)."""
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:00.000", "component_id": "station31", "part_id": "p1", "activity": "LOAD"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:03.000", "component_id": "station31", "part_id": "p1", "activity": "PROCESS"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:13.000", "component_id": "station31", "part_id": "p1", "activity": "BLOCK"}
+    )
+    assert kpi._stn_state["station31"]["state"] == "BLOCKED"
+
+
+def test_scrap_lap_preserves_done_slots_in_display_grid():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import part_track_conformance as ptc
+
+    steps = [
+        {"timestamp": 1.0, "time": "2026-05-09T16:00:00", "component_id": "corner2", "activity": "START"},
+        {"timestamp": 2.0, "time": "2026-05-09T16:00:01", "component_id": "station11", "activity": "LOAD"},
+        {"timestamp": 3.0, "time": "2026-05-09T16:00:02", "component_id": "station11", "activity": "PROCESS"},
+        {"timestamp": 4.0, "time": "2026-05-09T16:00:03", "component_id": "station11", "activity": "UNLOAD"},
+        {"timestamp": 5.0, "time": "2026-05-09T16:00:04", "component_id": "splitter5", "activity": "SCRAP"},
+    ]
+    rep = ptc.replay_part_trace(steps)
+    dg = rep["display_grid"]
+    assert dg.get("st11") == "DONE"
+    assert all(dg.get(s) != "SCRAP" for s in ptc.SLOTS)
+    lab, style = ptc.conformance_column_display(rep)
+    assert style == "scrap"
+
+
+def test_station41_station71_pass_events_are_meaningful():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import part_track_conformance as ptc
+
+    for comp in ("station41", "station71"):
+        ev = {"component_id": comp, "activity": "PASS"}
+        assert ptc.event_is_meaningful(ev)
+
+
+def test_scrap_on_non_splitter5_does_not_close_lap():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import part_track_conformance as ptc
+
+    steps = [
+        {"timestamp": 1.0, "time": "2026-05-09T16:00:00", "component_id": "corner2", "activity": "START"},
+        {"timestamp": 2.0, "time": "2026-05-09T16:00:01", "component_id": "station11", "activity": "LOAD"},
+        {"timestamp": 3.0, "time": "2026-05-09T16:00:02", "component_id": "station41", "activity": "SCRAP"},
+    ]
+    rep = ptc.replay_part_trace(steps)
+    assert rep["lap_open"] is True
+    assert not rep["laps"]
+
+
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 _EVENT_LOG_260312 = os.path.join(_ROOT, "event-logs", "event_log_260312_180229.csv")
 _EVENT_LOG_260509 = os.path.join(_ROOT, "event-logs", "event_log_260509_164517.csv")

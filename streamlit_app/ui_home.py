@@ -3,7 +3,6 @@ Main page: global control + dashboard entry links (week6 §六阶段 A).
 """
 from __future__ import annotations
 
-import html
 import json
 import os
 import time
@@ -20,204 +19,99 @@ import ui_history_panel
 import ui_replay_panel
 
 
-@st.dialog("Service logs", width="large")
+@st.dialog("Control Runs", width="large")
 def _service_logs_unified_dialog() -> None:
-    """Control run history + service/deployment logs."""
-    t1, t2, t3 = st.tabs(["Control Runs", "main_service", "Deployment(raw)"])
-    with t1:
-        _h_r1, _h_r2 = st.columns([4, 1])
-        with _h_r1:
-            st.caption("完整控制动作记录（Start/Stop/Shutdown/System）")
-        with _h_r2:
-            if st.button("Refresh", key="home_dlg_log_refresh_hist", type="secondary"):
-                st.rerun()
+    """Control run history (Start/Stop/Shutdown/System and related actions)."""
+    _h_r1, _h_r2 = st.columns([4, 1])
+    with _h_r1:
+        st.caption("完整控制动作记录（Start/Stop/Shutdown/System）")
+    with _h_r2:
+        if st.button("Refresh", key="home_dlg_log_refresh_hist", type="secondary"):
+            st.rerun()
 
-        hist = process_control.read_control_action_history(80)
-        if not hist:
-            st.info("暂无控制动作记录。")
-        else:
-            for i, row in enumerate(hist):
-                cmd = str(row.get("cmd") or "—")
-                tm = str(row.get("time_full") or row.get("time") or "")
-                ok = row.get("success")
-                icon = "✓" if ok is True else ("✗" if ok is False else "—")
-                status = "successful" if ok is True else ("failed" if ok is False else "unknown")
-                title = "{} {} · {} · {}".format(icon, cmd, tm, status)
-                with st.expander(title, expanded=(i == 0)):
-                    msg = (row.get("message") or "").strip()
-                    if msg:
-                        st.caption(msg)
-                    prog = row.get("progress") if isinstance(row.get("progress"), dict) else {}
-                    comps = prog.get("components") if isinstance(prog, dict) else {}
-                    if isinstance(comps, dict) and comps:
-                        st.caption(
-                            "{} · {} · {}".format(
-                                prog.get("operation", "—"),
-                                prog.get("updated_at", "—"),
-                                prog.get("status", "—"),
-                            )
+    hist = process_control.read_control_action_history(80)
+    if not hist:
+        st.info("暂无控制动作记录。")
+    else:
+        for i, row in enumerate(hist):
+            cmd = str(row.get("cmd") or "—")
+            tm = str(row.get("time_full") or row.get("time") or "")
+            ok = row.get("success")
+            icon = "✓" if ok is True else ("✗" if ok is False else "—")
+            status = "successful" if ok is True else ("failed" if ok is False else "unknown")
+            title = "{} {} · {} · {}".format(icon, cmd, tm, status)
+            with st.expander(title, expanded=(i == 0)):
+                msg = (row.get("message") or "").strip()
+                if msg:
+                    st.caption(msg)
+                prog = row.get("progress") if isinstance(row.get("progress"), dict) else {}
+                comps = prog.get("components") if isinstance(prog, dict) else {}
+                if isinstance(comps, dict) and comps:
+                    st.caption(
+                        "{} · {} · {}".format(
+                            prog.get("operation", "—"),
+                            prog.get("updated_at", "—"),
+                            prog.get("status", "—"),
                         )
-                        for k in sorted(comps.keys()):
-                            if k == "_error":
-                                continue
-                            info = comps.get(k) or {}
-                            c_ok = bool(info.get("ok"))
-                            c_icon = "✓" if c_ok else "✗"
-                            c_msg = (
-                                (info.get("message") or "")
-                                .replace("\r\n", "\n")
-                                .replace("\r", "\n")
-                                .strip()
-                            )
-                            st.markdown("**{}** — {}".format(k, c_icon))
-                            if c_msg:
-                                if c_ok:
-                                    disp = (
-                                        " ".join(c_msg.split())
-                                        if "\n" in c_msg
-                                        else c_msg
-                                    )
-                                    st.caption(disp)
-                                else:
-                                    st.code(c_msg, language=None)
-                            elif not c_ok:
-                                st.caption("Failed (no message)")
+                    )
+                    for k in sorted(comps.keys()):
+                        if k == "_error":
+                            continue
+                        info = comps.get(k) or {}
+                        c_ok = bool(info.get("ok"))
+                        c_icon = "✓" if c_ok else "✗"
+                        c_msg = (
+                            (info.get("message") or "")
+                            .replace("\r\n", "\n")
+                            .replace("\r", "\n")
+                            .strip()
+                        )
+                        st.markdown("**{}** — {}".format(k, c_icon))
+                        if c_msg:
+                            if c_ok:
+                                disp = (
+                                    " ".join(c_msg.split())
+                                    if "\n" in c_msg
+                                    else c_msg
+                                )
+                                st.caption(disp)
                             else:
-                                st.caption("OK")
-                    elif not msg:
-                        st.caption("(no extra details)")
+                                st.code(c_msg, language=None)
+                        elif not c_ok:
+                            st.caption("Failed (no message)")
+                        else:
+                            st.caption("OK")
+                elif not msg:
+                    st.caption("(no extra details)")
 
-    with t2:
-        _t_r1, _t_r2 = st.columns([4, 1])
-        with _t_r1:
-            _lt, _lp = process_control.tail_latest_main_service_log(100)
-            st.caption(
-                "**File:** `{}`".format(os.path.basename(_lp) if _lp else "—")
+
+def _render_live_section_header(status_html: str, *, logs_disabled: bool) -> None:
+    """LIVE 卡片顶栏：左侧标题 + 状态，右上角 View logs（与状态同一视线）。"""
+    with st.container(key="home_live_head_row"):
+        _left, _btn = st.columns([1, 0.16], gap="small", vertical_alignment="center")
+        with _left:
+            st.markdown(
+                (
+                    '<div style="display:flex;align-items:center;flex-wrap:wrap;'
+                    'gap:10px 14px;">'
+                    '<span style="font-size:22px;font-weight:700;letter-spacing:.04em;'
+                    'color:#0284c7;">Live</span>'
+                    '<div style="font-size:15px;color:#64748b;display:flex;'
+                    'align-items:center;gap:8px;">{status}</div>'
+                    "</div>"
+                ).format(status=status_html),
+                unsafe_allow_html=True,
             )
-        with _t_r2:
-            if st.button("Refresh", key="home_dlg_log_refresh_main", type="secondary"):
-                st.rerun()
-        st.markdown(_service_log_html_block(_lt), unsafe_allow_html=True)
-    with t3:
-        _d_r1, _d_r2 = st.columns([4, 1])
-        with _d_r1:
-            _dt, _dp = process_control.tail_deployment_actions_log(200)
-            st.caption(
-                "**File:** `{}`".format(os.path.basename(_dp) if _dp else "—")
-            )
-        with _d_r2:
-            if st.button("Refresh", key="home_dlg_log_refresh_dep", type="secondary"):
-                st.rerun()
-        st.markdown(_service_log_html_block(_dt), unsafe_allow_html=True)
-
-
-def _render_live_header_status(*, logs_disabled: bool) -> None:
-    """LIVE 标题行右侧：Programs / System + View Logs。
-
-    Last command stays in ``session_state.last_cmd`` and View Logs; not shown in the bar.
-
-    ``logs_disabled``：仅在未选择 Data Source 时禁用日志（回放/本地仍可查日志）。
-    """
-    prog_raw = process_control.get_programs_status()
-    sys_raw = process_control.get_system_status()
-    last = process_control.read_last_control_action()
-
-    st.session_state["programs_status"] = prog_raw
-    st.session_state["system_status"] = sys_raw
-    if last:
-        _succ = last.get("success")
-        st.session_state["last_cmd"] = {
-            "name": str(last.get("cmd") or "—"),
-            "result": "successful" if _succ is True else "failed",
-            "time": str(last.get("time") or ""),
-        }
-    else:
-        st.session_state["last_cmd"] = {}
-
-    prog_color = {
-        "activated": "#2e7d32",
-        "partial": "#b45309",
-        "deactivated": "#64748b",
-    }.get(prog_raw, "#64748b")
-    prog_bg = {
-        "activated": "#dcfce7",
-        "partial": "#fef3c7",
-        "deactivated": "#f1f5f9",
-    }.get(prog_raw, "#f1f5f9")
-    prog_label = {
-        "activated": "Activated",
-        "partial": "Partial",
-        "deactivated": "Deactivated",
-    }.get(prog_raw, prog_raw.replace("_", " ").title())
-
-    sys_color = "#2e7d32" if sys_raw == "start" else "#64748b"
-    sys_bg = "#dcfce7" if sys_raw == "start" else "#f1f5f9"
-    sys_label = "Running" if sys_raw == "start" else "Stopped"
-
-    status_html = (
-        '<div class="cp-live-status-line cp-live-status-line--inline cp-live-status-bar">'
-        '<span class="cp-live-status-core">'
-        '<span class="cp-stat-pill" style="background:{pb};border:1.5px solid {pc};">'
-        '<span class="cp-stat-dot" style="background:{pc};"></span>'
-        '<span class="cp-stat-key">Programs</span>'
-        '<span class="cp-stat-val" style="color:{pc};">{pl}</span>'
-        '</span>'
-        '<span class="cp-stat-pill" style="background:{sb};border:1.5px solid {sc};">'
-        '<span class="cp-stat-dot" style="background:{sc};"></span>'
-        '<span class="cp-stat-key">System</span>'
-        '<span class="cp-stat-val" style="color:{sc};">{sl}</span>'
-        '</span>'
-        '</span>'
-        '</div>'
-    ).format(
-        pb=prog_bg,
-        pc=prog_color,
-        pl=prog_label,
-        sb=sys_bg,
-        sc=sys_color,
-        sl=sys_label,
-    )
-
-    _sl, _sr = st.columns([1, 0.42], gap="small", vertical_alignment="center")
-    with _sl:
-        st.markdown(status_html, unsafe_allow_html=True)
-    with _sr:
-        if st.button(
-            "View Logs",
-            key="home_view_logs",
-            type="secondary",
-            use_container_width=True,
-            help="main_service 日志与 deployment_actions（含 Upload）",
-            disabled=logs_disabled,
-        ):
-            _service_logs_unified_dialog()
-
-
-def _service_log_html_block(text: str) -> str:
-    """Colored log body for ``st.markdown(..., unsafe_allow_html=True)``."""
-    raw = text or ""
-    if not raw.strip():
-        inner = '<span style="color:#6b7280;">(empty)</span>'
-    else:
-        parts: list[str] = []
-        for line in raw.splitlines():
-            u = line.upper()
-            if "ERROR" in u or "FAIL" in u:
-                color = "#b91c1c"
-            elif "WARNING" in u or "WARN" in u:
-                color = "#c2410c"
-            else:
-                color = "#1f2937"
-            parts.append(
-                '<span style="color:{};">{}</span>'.format(color, html.escape(line))
-            )
-        inner = "\n".join(parts)
-    return (
-        '<pre style="margin:0.35rem 0 0 0;font-family:Consolas,Monaco,monospace;'
-        "font-size:13px;background-color:#f5f5f5;padding:14px;border-radius:8px;"
-        "white-space:pre-wrap;word-break:break-word;max-height:420px;overflow-y:auto;"
-        'line-height:1.55;border:1px solid #e5e7eb;">{}</pre>'
-    ).format(inner)
+        with _btn:
+            if st.button(
+                "View logs",
+                key="home_view_logs",
+                type="secondary",
+                use_container_width=True,
+                help="控制动作历史（Start/Stop/Shutdown/System 等）",
+                disabled=logs_disabled,
+            ):
+                _service_logs_unified_dialog()
 
 
 # Control Panel（ui优化：可读性优先、徽章状态条、触控目标与危险操作分隔）
@@ -236,7 +130,7 @@ _HOME_MAIN_CSS = """
   --accent: #0284c7;
   --sans: 'Barlow Condensed', sans-serif;
   --mono: 'Share Tech Mono', monospace;
-  --cp-blue: #1565c0;
+  --cp-blue: #0284c7;
   --cp-blue-soft: #e3f2fd;
   --cp-orange: #c2570a;
   --cp-orange-soft: #fff7ed;
@@ -268,7 +162,7 @@ div[data-testid="stMainBlockContainer"] {
 }
 div[data-testid="stMainBlockContainer"] h1 {
     font-family: var(--sans) !important;
-    font-size: 2rem !important;
+    font-size: 1.88rem !important;
     font-weight: 900 !important;
     letter-spacing: 0.04em !important;
     color: var(--text) !important;
@@ -277,15 +171,15 @@ div[data-testid="stMainBlockContainer"] h1 {
 
 div[data-testid="stMainBlockContainer"] .home-module-head-live {
     font-family: var(--sans) !important;
-    font-size: 1.15rem !important;
+    font-size: 22px !important;
     font-weight: 700 !important;
-    letter-spacing: 1.5px !important;
-    color: var(--cp-blue) !important;
-    border-left: 4px solid var(--cp-blue) !important;
+    letter-spacing: 0.04em !important;
+    color: var(--accent) !important;
+    border-left: 4px solid var(--accent) !important;
     border-top: none !important;
     padding: 10px 0 10px 14px !important;
     margin: 0 !important;
-    text-transform: uppercase !important;
+    text-transform: none !important;
     background: transparent !important;
     border-radius: 0 !important;
 }
@@ -295,22 +189,22 @@ div[data-testid="stMainBlockContainer"] .home-module-head-live.cp-live-head-inli
 
 div[data-testid="stMainBlockContainer"] .home-module-head-history {
     font-family: var(--sans) !important;
-    font-size: 1.15rem !important;
+    font-size: 22px !important;
     font-weight: 700 !important;
-    letter-spacing: 1.5px !important;
-    color: var(--cp-orange) !important;
-    border-left: 4px solid var(--cp-orange) !important;
+    letter-spacing: 0.04em !important;
+    color: #e67700 !important;
+    border-left: 4px solid #e67700 !important;
     border-top: none !important;
     padding: 10px 0 10px 14px !important;
     margin: 0 0 1rem 0 !important;
-    text-transform: uppercase !important;
+    text-transform: none !important;
     background: transparent !important;
     border-radius: 0 !important;
 }
 
 div[data-testid="stMainBlockContainer"] .cp-live-subsection-label {
     font-family: var(--sans) !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     font-weight: 700 !important;
     color: #374151 !important;
     margin: 12px 0 10px 0 !important;
@@ -367,7 +261,7 @@ div[data-testid="stMainBlockContainer"] .cp-live-status-last-inner {
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     color: var(--text-dim) !important;
 }
 
@@ -377,7 +271,7 @@ div[data-testid="stMainBlockContainer"] .cp-stat-pill {
     gap: 6px !important;
     padding: 4px 10px 4px 8px !important;
     border-radius: 20px !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     font-weight: 500 !important;
     white-space: nowrap !important;
 }
@@ -407,7 +301,7 @@ div[data-testid="stMainBlockContainer"] .cp-live-sep {
 }
 div[data-testid="stMainBlockContainer"] .cp-live-fail-hint {
     color: var(--cp-red) !important;
-    font-size: 13px !important;
+    font-size: 15px !important;
 }
 
 div[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlockBorderWrapper"]:has(.home-module-head-live),
@@ -527,14 +421,15 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button {
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button {
-    background: var(--cp-blue-soft) !important;
-    border: 1.5px solid var(--cp-blue) !important;
-    color: var(--cp-blue) !important;
+    background: #ffffff !important;
+    border: 1px solid #dee2e6 !important;
+    color: #374151 !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button:hover:not(:disabled),
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button:hover:not(:disabled) {
-    box-shadow: 0 2px 8px rgba(21, 101, 192, 0.2) !important;
-    border-color: #0d47a1 !important;
+    background: #f8f9fa !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_stop button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button {
@@ -590,7 +485,7 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button:disabled {
 }
 
 div[data-testid="stMainBlockContainer"] .cp-svc-status {
-    font-size: 14px;
+    font-size: 15px;
     color: var(--text-dim);
     margin: 0.4rem 0 0 0;
     display: flex;
@@ -612,7 +507,7 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_view_logs button {
     height: var(--cp-btn-h) !important;
     padding: 0 16px !important;
     font-family: var(--sans) !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     font-weight: 600 !important;
     border-radius: var(--cp-radius-btn) !important;
     line-height: 1.2 !important;
@@ -695,6 +590,9 @@ div[data-testid="stMainBlockContainer"] div.st-key-cp_card_local button:disabled
 
 _HOME_UI_REFRESH_CSS = """
 <style>
+:root {
+  --cp-btn-h: 46px;
+}
 #MainMenu, header, footer { visibility: hidden; }
 .stApp { background: #f6f8fb; }
 div[data-testid="stMainBlockContainer"] {
@@ -708,9 +606,11 @@ div[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlockBorderWrapp
     margin-bottom: 14px !important;
 }
 div[data-testid="stMainBlockContainer"] div[data-testid="stButton"] > button {
-    height: 38px !important;
-    font-size: 14px !important;
-    font-weight: 700 !important;
+    min-height: var(--cp-btn-h) !important;
+    max-height: var(--cp-btn-h) !important;
+    height: var(--cp-btn-h) !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
     letter-spacing: .01em !important;
     border-radius: 7px !important;
     padding: 0 16px !important;
@@ -736,54 +636,22 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stButton"] > button:hov
 .cp-title-main {
     font-size:22px;
     font-weight:700;
-    color:#212529;
+    color:#1e293b;
     letter-spacing:-.3px;
 }
-.cp-title-sub { font-size:17px; color:#adb5bd; }
-div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button {
-    background: #ecfdf5 !important;
-    border: 1px solid #bbf7d0 !important;
-    border-bottom: 1px solid #bbf7d0 !important;
-    color: #166534 !important;
-    box-shadow: none !important;
-}
-div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button {
-    background: #16a34a !important;
-    border: 1px solid #16a34a !important;
-    border-bottom: 1px solid #16a34a !important;
-    color: #ffffff !important;
-    box-shadow: none !important;
-}
+.cp-title-sub { font-size:15px; color:#64748b; }
+div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_stop button,
-div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button {
-    background: #f8fafc !important;
-    border: 1px solid #cbd5e1 !important;
-    border-bottom: 1px solid #cbd5e1 !important;
-    color: #172033 !important;
-    box-shadow: none !important;
-}
-div[data-testid="stMainBlockContainer"] div.st-key-home_shutdown button {
-    background: #fff1f2 !important;
-    border: 1px solid #fecdd3 !important;
-    border-bottom: 1px solid #fecdd3 !important;
-    color: #b91c1c !important;
-    font-weight: 750 !important;
-    box-shadow: none !important;
-}
+div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_shutdown button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_ul_code button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button {
-    background: #f8fafc !important;
-    border: 1px solid #cbd5e1 !important;
-    border-bottom: 1px solid #cbd5e1 !important;
-    color: #172033 !important;
-    box-shadow: none !important;
-}
-div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button,
-div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button {
-    background: #e7f5ff !important;
-    border: 1px solid #1971c2 !important;
-    border-bottom: 1px solid #1971c2 !important;
-    color: #1864ab !important;
+    background: #ffffff !important;
+    border: 1px solid #dee2e6 !important;
+    border-bottom: 1px solid #dee2e6 !important;
+    color: #374151 !important;
+    font-weight: 600 !important;
     box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button:hover:not(:disabled),
@@ -792,24 +660,76 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_btn_stop button:hover:no
 div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button:hover:not(:disabled),
 div[data-testid="stMainBlockContainer"] div.st-key-home_shutdown button:hover:not(:disabled),
 div[data-testid="stMainBlockContainer"] div.st-key-home_ul_code button:hover:not(:disabled),
-div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button:hover:not(:disabled),
-div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button:hover:not(:disabled),
-div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button:hover:not(:disabled) {
+div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button:hover:not(:disabled) {
+    background: #f8f9fa !important;
+    border-color: #cbd5e1 !important;
+    border-bottom-color: #cbd5e1 !important;
+    color: #1f2937 !important;
     box-shadow: none !important;
 }
-div[data-testid="stMainBlockContainer"] div.st-key-home_view_logs button {
-    background: transparent !important;
+div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    width: auto !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
+    width: 100% !important;
+    min-height: var(--cp-btn-h) !important;
+    max-height: var(--cp-btn-h) !important;
+    height: var(--cp-btn-h) !important;
+    padding: 0 10px !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_log button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_kpi button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_ops_block [data-testid="stDownloadButton"] > button {
+    min-height: var(--cp-btn-h) !important;
+    max-height: var(--cp-btn-h) !important;
+    height: var(--cp-btn-h) !important;
+    background: #ffffff !important;
     border: 1px solid #dee2e6 !important;
-    color: #64748b !important;
-    height: 28px !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    padding: 0 12px !important;
-    width: auto !important;
-    border-radius: 6px !important;
+    border-bottom: 1px solid #dee2e6 !important;
+    color: #374151 !important;
+    box-shadow: none !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_log button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_kpi button:hover:not(:disabled) {
+    background: #f8f9fa !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_live_head_row {
+    margin: -16px -16px 10px -16px !important;
+    padding: 10px 14px 9px !important;
+    border-bottom: 1px solid #f1f3f5 !important;
+    border-left: 4px solid #0284c7 !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_view_logs button {
+    background: #ffffff !important;
+    border: 1px solid #dee2e6 !important;
+    border-bottom: 1px solid #dee2e6 !important;
+    color: #374151 !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    height: 34px !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    padding: 0 14px !important;
+    border-radius: 8px !important;
     white-space: nowrap !important;
-    width: auto !important;
-    min-width: 90px !important;
+    width: 100% !important;
+    box-shadow: none !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_view_logs button:hover:not(:disabled) {
+    background: #f8f9fa !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-cp_card_live button,
 div[data-testid="stMainBlockContainer"] div.st-key-cp_card_local button {
@@ -844,7 +764,7 @@ div[data-testid="stMainBlockContainer"] .nav-card-hover:hover {
     border-color: #c8d0da !important;
 }
 div[data-testid="stSelectbox"] > div > div {
-    font-size: 13px !important;
+    font-size: 15px !important;
     border-radius: 8px !important;
     border-color: #dee2e6 !important;
 }
@@ -938,7 +858,7 @@ div[data-testid="stMainBlockContainer"] .cp-nav-title {
 }
 div[data-testid="stMainBlockContainer"] .cp-nav-sub {
     margin-top: 3px !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     line-height: 1.2 !important;
     color: #6b7280 !important;
     font-family: var(--sans) !important;
@@ -955,8 +875,8 @@ def section_title(
         """
 <div style="display:flex;align-items:center;justify-content:space-between;
 padding:10px 18px 9px;border-bottom:1px solid #f1f3f5;margin:-16px -16px 10px -16px;{left}">
-  <span style="font-size:16px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:{color}">{text}</span>
-  <div style="font-size:15px;color:#868e96;display:flex;align-items:center;gap:8px">{right_html}</div>
+  <span style="font-size:22px;font-weight:700;letter-spacing:.04em;color:{color}">{text}</span>
+  <div style="font-size:15px;color:#64748b;display:flex;align-items:center;gap:8px">{right_html}</div>
 </div>
 """.format(
             left=left, color=color, text=text, right_html=right_html
@@ -970,7 +890,7 @@ def sub_label(text: str = "") -> None:
         return
     st.markdown(
         (
-            '<p style="font-size:14px;font-weight:700;color:#adb5bd;'
+            '<p style="font-size:15px;font-weight:700;color:#adb5bd;'
             'letter-spacing:.05em;text-transform:uppercase;margin:4px 0 8px 0">{}</p>'
         ).format(text),
         unsafe_allow_html=True,
@@ -1112,7 +1032,7 @@ def _render_data_source_configuration() -> None:
         desc: str,
     ) -> str:
         desc_html = (
-            '<div style="font-size:12px;color:#868e96;margin-top:2px">{}</div>'.format(desc)
+            '<div style="font-size:13px;color:#64748b;margin-top:2px">{}</div>'.format(desc)
             if str(desc).strip()
             else ""
         )
@@ -1123,7 +1043,7 @@ display:flex;align-items:center;gap:12px;">
   align-items:center;justify-content:center;{cs}">{ci}</div>
   <div style="width:9px;height:9px;border-radius:50%;background:{dc};flex-shrink:0"></div>
   <div>
-    <div style="font-size:18px;font-weight:700;color:#212529">{nm}</div>
+    <div style="font-size:18px;font-weight:700;color:#1e293b">{nm}</div>
     {dh}
   </div>
 </div>
@@ -1138,7 +1058,7 @@ display:flex;align-items:center;gap:12px;">
             dh=desc_html,
         )
 
-    section_title("Data Source", "#6c757d", accent="#6c757d")
+    section_title("Data Source", "#64748b", accent="#64748b")
     err = st.session_state.get("cp_config_load_error")
     if err:
         st.error("Failed to load config: **{}**".format(err))
@@ -1148,13 +1068,13 @@ display:flex;align-items:center;gap:12px;">
         st.markdown(
             _src_card_html(
                 live_active,
-                "#1971c2" if live_active else "#dee2e6",
-                "#e7f5ff" if live_active else "#fff",
-                "background:#1971c2;border:2px solid #1971c2"
+                "#0284c7" if live_active else "#dee2e6",
+                "#f0f9ff" if live_active else "#fff",
+                "background:#0284c7;border:2px solid #0284c7"
                 if live_active
                 else "border:1.5px solid #ced4da",
                 chk_svg if live_active else "",
-                "#e03131",
+                "#22c55e",
                 "Live Monitoring",
                 "",
             ),
@@ -1229,8 +1149,8 @@ def render() -> None:
 
     st.markdown(
         '<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px">'
-        '<span style="font-size:22px;font-weight:700;color:#1a1e2e;letter-spacing:-.3px">DASHBOARD</span>'
-        '<span style="font-size:17px;color:#adb5bd">MOTOWN Digital Twin</span>'
+        '<span style="font-size:22px;font-weight:700;color:#1e293b;letter-spacing:-.3px">DASHBOARD</span>'
+        '<span style="font-size:15px;color:#64748b">MOTOWN Digital Twin</span>'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1277,9 +1197,9 @@ def render() -> None:
     prog_color = {
         "activated": "#2f9e44",
         "partial": "#e67700",
-        "deactivated": "#868e96",
-    }.get(prog_raw, "#868e96")
-    sys_color = "#2f9e44" if sys_raw == "start" else "#868e96"
+        "deactivated": "#64748b",
+    }.get(prog_raw, "#64748b")
+    sys_color = "#22c55e" if sys_raw == "start" else "#64748b"
     sys_label = "Running" if sys_raw == "start" else "Stopped"
 
     def _dot(c: str) -> str:
@@ -1306,7 +1226,7 @@ def render() -> None:
     )
 
     with st.container(border=True):
-        section_title("Live", "#1971c2", accent="#1971c2", right_html=status_html)
+        _render_live_section_header(status_html, logs_disabled=lock_all)
 
         if _bg_busy:
             st.caption("Background operation in progress — controls paused until it finishes.")
@@ -1331,7 +1251,7 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
 
         with st.container(key="home_live_ops_block"):
             sub_label("CONTROL")
-            c1, c2, c3, c4, c5 = st.columns([1.3, 1.3, 1.2, 1.3, 1.0])
+            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
             with c1:
                 if st.button(
                     "Start Programs",
@@ -1443,7 +1363,7 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
 
             hr()
             sub_label("DEPLOY")
-            d1, d2, _ = st.columns([1.3, 1.3, 4.5])
+            d1, d2, _, _, _ = st.columns(5, gap="small")
             with d1:
                 if st.button(
                     "Upload Code",
@@ -1479,12 +1399,6 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
                         )
                         st.toast("Upload Config submitted. Check View Logs.")
 
-        _v1, _v2, _v3, _v4 = st.columns([1.3, 1.3, 2.5, 1.0])
-        with _v4:
-            if st.button("View Logs", key="home_view_logs", disabled=lock_all):
-                _service_logs_unified_dialog()
-
-        # Detailed per-host execution messages are shown in View Logs -> Control Runs.
         if recording.is_recording():
             st.warning("Recording · **{}**".format(recording.current_path() or ""))
 
@@ -1513,7 +1427,7 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_hist_ops_block {
 
     # Navigate
     with st.container(border=True):
-        section_title("Navigate", "#6c757d", accent="#6c757d")
+        section_title("Navigate", "#64748b", accent="#64748b")
         n1, n2 = st.columns(2, gap="small")
         with n1:
             if st.button(

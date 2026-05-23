@@ -62,15 +62,6 @@ def _twin_flow_slot_cell_inner_html(slot: str, rep: dict) -> str:
     stt = dg.get(slot, "NOT_DONE")
     lap_open = bool(rep.get("lap_open"))
     hcx = bool(rep.get("has_cycle_context"))
-    scrap_row = any(dg.get(s) == "SCRAP" for s in part_track_conformance.SLOTS)
-
-    if scrap_row and slot == "st71":
-        return (
-            "<div style='width:28px;height:28px;margin:auto;display:flex;"
-            "align-items:center;justify-content:center;font-size:1.1rem;'>❌</div>"
-        )
-    if scrap_row:
-        return "<div style='width:28px;height:28px;margin:auto;'></div>"
     if stt == "REWORK":
         return (
             f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
@@ -93,11 +84,6 @@ def _twin_flow_slot_cell_inner_html(slot: str, rep: dict) -> str:
         return (
             f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
             "margin:auto;border:1px solid #ccc;'></div>"
-        )
-    if stt == "SCRAP":
-        return (
-            "<div style='width:28px;height:28px;margin:auto;display:flex;"
-            "align-items:center;justify-content:center;font-size:1.1rem;'>❌</div>"
         )
     return (
         f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
@@ -172,7 +158,7 @@ def _twin_flow_legend_html() -> str:
     fin = _TWIN_FLOW_CLR_COL_FINISHED
     scrap = _TWIN_FLOW_CLR_LEGEND_SCRAP
     return (
-        "<div style='display:flex;gap:16px;margin-bottom:10px;font-size:0.95rem;"
+        "<div style='display:flex;gap:16px;margin-bottom:10px;font-size:13px;"
         "align-items:center;flex-wrap:wrap;color:#64748b;'>"
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"
         f"<span style='width:14px;height:14px;border-radius:3px;background:{d};"
@@ -197,10 +183,16 @@ def _twin_flow_legend_html() -> str:
 
 
 def _twin_flow_row_td_background(rep: dict, conf_style: str, part_id: str = "") -> str:
-    _ = conf_style, rep
+    _ = rep
     flash = _part_trace_row_flash_bg(part_id) if part_id else None
     if flash:
         return flash
+    if conf_style == "scrap":
+        return _TWIN_FLOW_CLR_COL_SCRAP
+    if conf_style == "rework":
+        return _TWIN_FLOW_CLR_COL_ANOMALY
+    if conf_style == "skipped":
+        return _TWIN_FLOW_CLR_COL_ANOMALY
     return _TWIN_FLOW_CLR_COL_NORMAL
 
 
@@ -210,12 +202,12 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
     st.markdown(_twin_flow_legend_html(), unsafe_allow_html=True)
 
     _cell = (
-        "<div style='padding:10px 6px;background:#2c3e50;color:white;font-size:1.14rem;"
+        "<div style='padding:10px 6px;background:#1e293b;color:white;font-size:15px;"
         "font-weight:600;border-radius:4px;text-align:center;min-height:2.6rem;"
         "display:flex;align-items:center;justify-content:center;white-space:nowrap;'>{}</div>"
     )
     _hdr_slot = (
-        "<div style='padding:10px 4px;background:#2c3e50;color:white;font-size:1.08rem;"
+        "<div style='padding:10px 4px;background:#1e293b;color:white;font-size:15px;"
         "font-weight:600;border-radius:4px;text-align:center;min-height:2.6rem;"
         "display:flex;align-items:center;justify-content:center;white-space:nowrap;'>{}</div>"
     )
@@ -261,8 +253,8 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
         cols = st.columns(col_weights, gap="small", vertical_alignment="center")
         with cols[0]:
             st.markdown(
-                "<div style='padding:8px 10px;background:#34495e;color:white;font-weight:600;"
-                "font-size:1.1rem;border-radius:4px;text-align:center;white-space:nowrap;'>{}</div>".format(
+                "<div style='padding:8px 10px;background:#334155;color:white;font-weight:600;"
+                "font-size:14px;border-radius:4px;text-align:center;white-space:nowrap;'>{}</div>".format(
                     pid
                 ),
                 unsafe_allow_html=True,
@@ -278,7 +270,7 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
                 )
         with cols[len(part_track_conformance.SLOTS) + 1]:
             st.markdown(
-                "<div style='padding:8px 10px;background:{};font-size:1.1rem;color:#1e293b;"
+                "<div style='padding:8px 10px;background:{};font-size:14px;color:#1e293b;"
                 "border-radius:4px;text-align:center;display:flex;align-items:center;"
                 "justify-content:center;min-height:2.6rem;white-space:nowrap;'>{}</div>".format(
                     row_bg, loc_txt

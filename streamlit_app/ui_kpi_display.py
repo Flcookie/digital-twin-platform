@@ -4,22 +4,10 @@ from __future__ import annotations
 import datetime
 import html
 import time
-from typing import Any, cast
+from typing import Any
 
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
-# Stage KPI 表：行文案与 Looping 行底色
-_STAGE_TABLE_LABELS: dict[int, str] = {
-    1: "Stage 1 · Non-Looping",
-    2: "Stage 2 · Looping",
-    3: "Stage 3 · Non-Looping",
-    4: "Stage 4 · Looping",
-    5: "Stage 5 · Non-Looping",
-    6: "Stage 6 · Looping",
-}
-_STAGE_LOOPING_INDEX = frozenset({1, 3, 5})  # 0-based row index → stage 2,4,6
 
 # 与 code/ui_theme.py STATUS_COLORS / :root 对齐（仅 UI 展示）
 _UI_THEME: dict[str, str] = {
@@ -42,31 +30,44 @@ _UI_THEME: dict[str, str] = {
 # Plotly 与 Streamlit 共用：Barlow Condensed（与 ui_sidebar 一致）
 _PLOT_FONT = '"Barlow Condensed", "Segoe UI", sans-serif'
 
-# 字号层级（优化2 版式定稿 · B；本轮只统一字号，不改布局/颜色）
+# 字号层级（布局.md · 可读性微调：Barlow Condensed 下同 px 略增一档）
 _FONT_L1_PX = 24   # section：System KPI
-_FONT_L2_PX = 20   # section：Trends / Stage / Station；图表标题
-_FONT_L3_PX = 14   # 指标名、工站名、柱图轴
+_FONT_L2_PX = 22   # section：Trends / Stage / Station
+_FONT_L3_PX = 15   # 指标名、工站名、按钮、表头
 _FONT_L4_SYSTEM_PX = 30  # System 双行卡主数值
 _FONT_L4_STAGE_PX = 28   # Stage 卡主数值
 _FONT_L4_STAGE_THR_PX = 30  # Stage Throughput 略强调
-_FONT_L5_PX = 12   # caption、hover、副标题
-_FONT_CHART_TITLE_PX = 18  # Plotly 图标题（与 L2 section 区分）
-_FONT_CHART_AXIS_PX = 14
-_FONT_STAGE_NAME_PX = 18  # Stage 卡内阶段名
+_FONT_L5_PX = 13   # caption、hover、副标题
+_FONT_CHART_TITLE_PX = 17  # Chart-T（柱图/趋势图标题）
+_FONT_CHART_AXIS_PX = 14  # Chart-A（趋势图刻度）
+_FONT_STAGE_NAME_PX = 16  # Stage 卡内阶段名（略大于 L3）
 
 # Trends 双图：等高、同 margin；仅使用 KPI 内 trend_* 序列（不用 MQTT 缓冲假滚动）
 _WIP_TREND_MAX_POINTS = 20
 _TREND_CHART_HEIGHT = 250
-_TREND_PAIR_MARGIN = dict(t=42, b=36, l=60, r=20)
+_TREND_PLOTLY_CONTAINER_HEIGHT = 290
+_TREND_PAIR_MARGIN_WIP = dict(t=42, b=36, l=60, r=20)
+_TREND_PAIR_MARGIN_RATE = dict(t=42, b=36, l=40, r=20)
+_TREND_PLOT_CONFIG = {
+    "displayModeBar": False,
+    "scrollZoom": False,
+    "doubleClick": False,
+}
 _CHART_TITLE_WIP = "WIP (pcs)"
-_CHART_TITLE_RATES = "Completion & Scrap (%)"
+_CHART_TITLE_RATES = "Completion & Scrap (/s)"
+_TREND_ROLLING_DEPARTURES = 20
+_RATE_TREND_Y_MAX_HISTORY = 20
+_RATE_TREND_Y_PAD = 1.2
+_RATE_TREND_Y_EMPTY_HI = 0.05
+_SESSION_RATE_Y_PEAKS = "_kpi_rate_trend_y_peak_history"
+_SESSION_RATE_Y_SESSION = "_kpi_rate_trend_y_session_id"
 
 # System / Stage 指标数值色（同一语义同一色）
-_KPI_COLOR_WIP = "#1565c0"
-_KPI_COLOR_COMPLETION = "#2e7d32"
-_KPI_COLOR_SCRAP = "#c62828"
-_KPI_COLOR_LEAD = "#e65100"
-_KPI_COLOR_DEFAULT = "#1a2332"
+_KPI_COLOR_WIP = "#0284c7"
+_KPI_COLOR_COMPLETION = "#16a34a"
+_KPI_COLOR_SCRAP = "#dc2626"
+_KPI_COLOR_LEAD = "#ea580c"
+_KPI_COLOR_DEFAULT = "#1e293b"
 _STAGE_TITLE_COLOR = "#1e293b"
 _STAGE_BADGE_BG = "#f1f5f9"
 _STAGE_BADGE_TEXT = "#64748b"
@@ -102,28 +103,9 @@ _KPI_SECTION_TITLE_CSS = """
         font-size: """ + str(_FONT_L2_PX) + """px !important;
         border-left-color: #0284c7 !important;
     }
-    /* Stage | Station 并列：行高随右列拉伸，左列 flex + 底部 spacer 填满 */
+    /* Stage | Station 并列：顶对齐，Stage 列随内容高度（不拉伸填空白） */
     div[data-testid="stMainBlockContainer"] div.st-key-kpi_stage_station_panel [data-testid="stHorizontalBlock"] {
-        align-items: stretch !important;
-    }
-    div[data-testid="stMainBlockContainer"] div.st-key-kpi_stage_station_panel div.st-key-kpi_stage_col {
-        flex: 1 1 auto !important;
-        display: flex !important;
-        flex-direction: column !important;
-        min-height: 0 !important;
-        height: 100% !important;
-    }
-    div[data-testid="stMainBlockContainer"] div.st-key-kpi_stage_station_panel div.st-key-kpi_stage_col [data-testid="stVerticalBlock"] {
-        display: flex !important;
-        flex-direction: column !important;
-        flex: 1 1 auto !important;
-        min-height: 0 !important;
-        height: 100% !important;
-    }
-    div[data-testid="stMainBlockContainer"] div.st-key-kpi_stage_station_panel .kpi-stage-spacer {
-        flex: 1 1 auto !important;
-        min-height: 0 !important;
-        width: 100% !important;
+        align-items: start !important;
     }
     div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap,
     div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stVerticalBlockBorderWrapper"] {
@@ -133,12 +115,39 @@ _KPI_SECTION_TITLE_CSS = """
         padding: 16px 20px !important;
         margin-bottom: 20px !important;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+        overflow: hidden !important;
     }
-    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] {
-        min-height: """ + str(_TREND_CHART_HEIGHT + 28) + """px !important;
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stHorizontalBlock"],
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="column"],
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"],
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] > div,
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] iframe {
+        overflow: hidden !important;
+        overflow-x: hidden !important;
+        overflow-y: hidden !important;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
     }
-    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] > div {
-        height: """ + str(_TREND_CHART_HEIGHT + 28) + """px !important;
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"]::-webkit-scrollbar,
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] > div::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+    div[data-testid="stMainBlockContainer"] .kpi-station-pills-grid {
+        display: grid !important;
+        grid-template-columns: repeat(9, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        align-items: center !important;
+    }
+    div[data-testid="stMainBlockContainer"] .kpi-station-pills-grid > span {
+        min-width: 0 !important;
+        white-space: nowrap !important;
+    }
+    @media (max-width: 1440px) {
+        div[data-testid="stMainBlockContainer"] .kpi-station-pills-grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+        }
     }
 </style>
 """
@@ -148,12 +157,6 @@ def _kpi_section_title_html(title: str, variant: str) -> str:
     v = html.escape(variant.strip().lower())
     t = html.escape(title)
     return '<p class="kpi-sec-title kpi-sec-title--{}">{}</p>'.format(v, t)
-
-
-def _stage_kpi_row_style(row: pd.Series) -> list[str]:
-    idx = int(cast(int, row.name))
-    bg = _UI_THEME["surface2"] if idx in _STAGE_LOOPING_INDEX else _UI_THEME["surface"]
-    return [f"background-color: {bg};"] * len(row)
 
 
 # Station KPI 卡片标题（与 Digital Twin / part_track_conformance.SLOT_HEADERS_M 风格一致：M1-1 …）
@@ -408,25 +411,25 @@ def render_station_card_grid(
     for sid in station_order:
         live = live_all.get(sid) or {}
         state = str(live.get("current_state") or "IDLE").upper()
-        color = state_color.get(state, "#9e9e9e")
+        color = state_color.get(state, _STATION_IDLE_COLOR)
         dot = state_dot.get(state, "○")
         name = station_kpi_display_name(sid)
         pills += (
             '<span style="display:inline-flex;align-items:center;justify-content:center;gap:6px;'
-            'background:#f5f5f5;border-radius:18px;padding:7px 12px;'
+            f'background:{_UI_THEME["surface2"]};border-radius:18px;padding:7px 12px;'
             f'margin:0;font-size:{_FONT_L3_PX}px;width:100%;box-sizing:border-box;">'
             f'<span style="color:{color};font-size:{_FONT_L3_PX}px">{dot}</span>'
-            f'<span style="color:#333;font-weight:700;font-size:{_FONT_L3_PX}px">{html.escape(name)}</span>'
+            f'<span style="color:{_UI_THEME["text"]};font-weight:700;font-size:{_FONT_L3_PX}px">{html.escape(name)}</span>'
             f'<span style="color:{color};font-size:{_FONT_L3_PX}px">{html.escape(state.capitalize())}</span>'
             "</span>"
         )
     st.markdown(
         (
             '<div style="margin-bottom:12px;">'
-            f'<div style="font-size:{_FONT_L3_PX}px;color:#9e9e9e;margin-bottom:4px;">'
+            f'<div style="font-size:{_FONT_L3_PX}px;color:{_UI_THEME["text_dim"]};margin-bottom:4px;">'
             "State"
             "</div>"
-            '<div style="display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:10px;align-items:center;">'
+            '<div class="kpi-station-pills-grid">'
             f"{pills}"
             "</div>"
             "</div>"
@@ -455,51 +458,44 @@ def render_station_card_grid(
         values: list[float],
         color: str,
         metric_name: str,
-        *,
-        annotate_values: bool = False,
     ) -> go.Figure:
         n = len(labels)
-        bar_kwargs: dict[str, Any] = dict(
-            x=labels,
-            y=values,
-            marker_color=color,
-            customdata=[metric_name] * n,
-            hovertemplate="<b>%{x}</b><br>%{customdata}: %{y:.1f}<extra></extra>",
+        fig = go.Figure(
+            go.Bar(
+                x=labels,
+                y=values,
+                marker_color=color,
+                customdata=[metric_name] * n,
+                hovertemplate="<b>%{x}</b><br>%{customdata}: %{y:.1f}<extra></extra>",
+            )
         )
-        if not annotate_values:
-            bar_kwargs["text"] = ["{:.0f}".format(v) if v > 0.5 else "" for v in values]
-            bar_kwargs["textposition"] = [
-                "inside" if v >= 92.0 else "outside" for v in values
-            ]
-            bar_kwargs["cliponaxis"] = False
-        fig = go.Figure(go.Bar(**bar_kwargs))
-        y_max = 105.0
-        if annotate_values:
-            y_max = max(105.0, max(values, default=0) + 8.0)
-            for lb, val in zip(labels, values):
-                if val > 0:
-                    fig.add_annotation(
-                        x=lb,
-                        y=val + 1.0,
-                        text="{:.0f}".format(val),
-                        showarrow=False,
-                        font=dict(size=_FONT_L5_PX, color=color, family=_PLOT_FONT),
-                        yanchor="bottom",
-                    )
+        y_max = max(105.0, max(values, default=0) + 8.0)
+        for lb, val in zip(labels, values):
+            if val > 0:
+                fig.add_annotation(
+                    x=lb,
+                    y=val + 1.0,
+                    text="{:.0f}".format(val),
+                    showarrow=False,
+                    font=dict(size=_FONT_L5_PX, color=color, family=_PLOT_FONT),
+                    yanchor="bottom",
+                )
         fig.update_layout(
             title=dict(text=title, font=dict(size=_FONT_CHART_TITLE_PX, family=_PLOT_FONT)),
             height=200,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#f8f9fa",
-            margin=dict(t=36, b=40, l=40, r=10),
+            margin=dict(t=36, b=40, l=8, r=10),
             yaxis=dict(
                 range=[0, y_max],
-                dtick=25,
-                title=dict(text=""),
-                tickfont=dict(size=_FONT_CHART_AXIS_PX),
+                showticklabels=False,
+                showline=False,
+                showgrid=False,
+                zeroline=False,
+                ticks="",
             ),
             xaxis=dict(tickfont=dict(size=_FONT_CHART_AXIS_PX)),
-            font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
+            font=dict(size=_FONT_CHART_AXIS_PX, color=_UI_THEME["text_dim"], family=_PLOT_FONT),
             showlegend=False,
             hoverlabel=_STATION_HOVER,
         )
@@ -510,7 +506,9 @@ def render_station_card_grid(
     row2_col1, row2_col2 = st.columns(2)
     with row1_col1:
         st.plotly_chart(
-            _make_station_bar("Busy (%)", busy_vals, _STATION_BUSY_COLOR, "Busy"),
+            _make_station_bar(
+                "Busy fraction (%)", busy_vals, _STATION_BUSY_COLOR, "Busy"
+            ),
             use_container_width=True,
             config={"displayModeBar": False},
             key="kpi_station_busy_bar",
@@ -518,11 +516,10 @@ def render_station_card_grid(
     with row1_col2:
         st.plotly_chart(
             _make_station_bar(
-                "Failed (%)",
+                "Failed fraction (%)",
                 fail_vals,
                 _STATION_FAIL_COLOR,
                 "Failed",
-                annotate_values=True,
             ),
             use_container_width=True,
             config={"displayModeBar": False},
@@ -530,14 +527,21 @@ def render_station_card_grid(
         )
     with row2_col1:
         st.plotly_chart(
-            _make_station_bar("Blocked (%)", blocked_vals, _STATION_BLOCKED_COLOR, "Blocked"),
+            _make_station_bar(
+                "Blocked fraction (%)",
+                blocked_vals,
+                _STATION_BLOCKED_COLOR,
+                "Blocked",
+            ),
             use_container_width=True,
             config={"displayModeBar": False},
             key="kpi_station_blocked_bar",
         )
     with row2_col2:
         st.plotly_chart(
-            _make_station_bar("Idle (%)", idle_vals, _STATION_IDLE_COLOR, "Idle"),
+            _make_station_bar(
+                "Idle fraction (%)", idle_vals, _STATION_IDLE_COLOR, "Idle"
+            ),
             use_container_width=True,
             config={"displayModeBar": False},
             key="kpi_station_idle_bar",
@@ -611,37 +615,37 @@ def render_system_kpi_group(
         if top_sub:
             if top_sub_inline:
                 top_sub_html = (
-                    f'<span style="font-size:{l5}px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</span>'
+                    f'<span style="font-size:{l5}px;color:#64748b;line-height:1.2;">{html.escape(str(top_sub))}</span>'
                 )
             else:
                 top_sub_html = (
-                    f'<div style="font-size:{l3}px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</div>'
+                    f'<div style="font-size:{l3}px;color:#64748b;line-height:1.2;">{html.escape(str(top_sub))}</div>'
                 )
         bottom_sub_html = ""
         if bottom_sub:
             if bottom_sub_inline:
                 bottom_sub_html = (
-                    f'<span style="font-size:{l5}px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</span>'
+                    f'<span style="font-size:{l5}px;color:#64748b;line-height:1.2;">{html.escape(str(bottom_sub))}</span>'
                 )
             else:
                 bottom_sub_html = (
-                    f'<div style="font-size:{l3}px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</div>'
+                    f'<div style="font-size:{l3}px;color:#64748b;line-height:1.2;">{html.escape(str(bottom_sub))}</div>'
                 )
         top_title_html = (
             f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;">'
-            f'<span style="font-size:{l3}px;color:#546e7a;font-weight:600;white-space:nowrap;">{top_label_e}</span>'
+            f'<span style="font-size:{l3}px;color:#64748b;font-weight:600;white-space:nowrap;">{top_label_e}</span>'
             f'{top_sub_html}'
             "</div>"
             if top_sub_inline
-            else f'<div style="font-size:{l3}px;color:#546e7a;font-weight:600;">{top_label_e}</div>{top_sub_html}'
+            else f'<div style="font-size:{l3}px;color:#64748b;font-weight:600;">{top_label_e}</div>{top_sub_html}'
         )
         bottom_title_html = (
             f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;">'
-            f'<span style="font-size:{l3}px;color:#546e7a;font-weight:600;white-space:nowrap;">{bottom_label_e}</span>'
+            f'<span style="font-size:{l3}px;color:#64748b;font-weight:600;white-space:nowrap;">{bottom_label_e}</span>'
             f'{bottom_sub_html}'
             "</div>"
             if bottom_sub_inline
-            else f'<div style="font-size:{l3}px;color:#546e7a;font-weight:600;">{bottom_label_e}</div>{bottom_sub_html}'
+            else f'<div style="font-size:{l3}px;color:#64748b;font-weight:600;">{bottom_label_e}</div>{bottom_sub_html}'
         )
         return (
             '<div style="background:white;border:1px solid #e0e0e0;border-radius:8px;'
@@ -659,8 +663,8 @@ def render_system_kpi_group(
             '</div>'
         )
 
-    completion_pct = "{:.1f}".format(float(v["yield_rate"]) * 100.0)
-    scrap_pct = "{:.1f}".format(float(v["sr"]) * 100.0)
+    completion_rate_text = "{:.4f}".format(float(v["cr"]))
+    scrap_rate_text = "{:.4f}".format(float(v["n_scrap"]) / max(float(v["obs"]), 0.001))
     lead_fin_text = "{:.1f}".format(float(v["ct_fin"]))
     lead_all_text = "{:.1f}".format(float(v["ct_all"]))
 
@@ -683,8 +687,8 @@ def render_system_kpi_group(
                 "Completions",
                 str(v["n_comp"]),
                 _KPI_COLOR_COMPLETION,
-                "Completion Rate (%)",
-                completion_pct,
+                "Completion Rate (/s)",
+                completion_rate_text,
                 _KPI_COLOR_COMPLETION,
             ),
             unsafe_allow_html=True,
@@ -695,8 +699,8 @@ def render_system_kpi_group(
                 "Scraps",
                 str(v["n_scrap"]),
                 _KPI_COLOR_SCRAP,
-                "Scrap Rate (%)",
-                scrap_pct,
+                "Scrap Rate (/s)",
+                scrap_rate_text,
                 _KPI_COLOR_SCRAP,
             ),
             unsafe_allow_html=True,
@@ -821,7 +825,7 @@ def _trend_layout_common(*, showlegend: bool) -> dict[str, Any]:
         "plot_bgcolor": "#f8f9fa",
         "margin": dict(t=36, b=30, l=50, r=20),
         "height": 260,
-        "font": dict(family=_PLOT_FONT, size=_FONT_CHART_AXIS_PX, color="#546e7a"),
+        "font": dict(family=_PLOT_FONT, size=_FONT_CHART_AXIS_PX, color="#64748b"),
         "showlegend": showlegend,
         "hovermode": "x unified",
         "hoverlabel": _TREND_HOVERLABEL,
@@ -834,7 +838,7 @@ def _trend_layout_common(*, showlegend: bool) -> dict[str, Any]:
             yanchor="top",
             bgcolor="rgba(255,255,255,0.8)",
             borderwidth=0,
-            font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
+            font=dict(size=_FONT_CHART_AXIS_PX, color="#64748b", family=_PLOT_FONT),
         )
     return d
 
@@ -866,11 +870,13 @@ def _trend_apply_grid(fig: go.Figure) -> None:
     )
 
 
-def _trend_pair_layout_extras() -> dict[str, Any]:
+def _trend_pair_layout_extras(*, margin_left: int = 60) -> dict[str, Any]:
     """Trends 双图共用：等高、margin 对齐、图例右上。"""
     base = _trend_layout_common(showlegend=True)
     base["height"] = _TREND_CHART_HEIGHT
-    base["margin"] = dict(_TREND_PAIR_MARGIN)
+    margin = dict(_TREND_PAIR_MARGIN_WIP if margin_left >= 60 else _TREND_PAIR_MARGIN_RATE)
+    margin["l"] = margin_left
+    base["margin"] = margin
     base["legend"] = dict(
         orientation="h",
         x=1.0,
@@ -879,7 +885,7 @@ def _trend_pair_layout_extras() -> dict[str, Any]:
         yanchor="bottom",
         bgcolor="rgba(255,255,255,0)",
         borderwidth=0,
-        font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
+        font=dict(size=_FONT_CHART_AXIS_PX, color="#64748b", family=_PLOT_FONT),
     )
     return base
 
@@ -966,9 +972,10 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
         for ts, _ in hist
     ]
     sample_idx = list(range(1, n + 1))
+    wip_c = _KPI_COLOR_WIP
     mk = dict(
         size=3,
-        color="#1976d2",
+        color=wip_c,
         symbol="circle",
         line=dict(width=1, color="#ffffff"),
     )
@@ -978,9 +985,9 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
             y=ys,
             mode="lines+markers",
             name="WIP",
-            line=dict(color="#1976d2", width=2.5),
+            line=dict(color=wip_c, width=2.5),
             marker=mk,
-            selected=dict(marker=dict(size=10, color="#1976d2")),
+            selected=dict(marker=dict(size=10, color=wip_c)),
             unselected=dict(marker=dict(size=3, opacity=1.0)),
             customdata=sample_idx,
             hovertemplate=(
@@ -993,10 +1000,10 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
             x=x_dt,
             y=[avg_w] * n,
             mode="lines",
-            name="AVG WIP",
-            line=dict(color="#ff9800", width=2, dash="6px,3px"),
+            name="AVG WIP (window)",
+            line=dict(color=_UI_THEME["orange"], width=2, dash="6px,3px"),
             hovertemplate=(
-                "AVG WIP (this window): %{y:.2f}<extra></extra>"
+                "AVG WIP (window): %{y:.2f}<extra></extra>"
             ),
         )
     )
@@ -1026,30 +1033,77 @@ def _parse_wip_trend_hist(kpi: dict) -> list[tuple[float, int]]:
 
 
 def _trend_rate_points(kpi: dict) -> list[tuple[float, float, float]]:
-    """(unix_ts, completion_rate_pct, scrap_rate_pct) — 仅 trend_rate_history，与 WIP 同源采样。"""
-    rows: list[tuple[float, float, float]] = []
-    raw = kpi.get("trend_rate_history")
+    """(unix_ts, completion_rate_/s, scrap_rate_/s) — rolling window over trend_departure_history."""
+    hist: list[tuple[float, int, int]] = []
+    raw = kpi.get("trend_departure_history")
     if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, (list, tuple)) and len(item) >= 3:
+        for row in raw:
+            if isinstance(row, (list, tuple)) and len(row) >= 3:
                 try:
-                    rows.append((float(item[0]), float(item[1]), float(item[2])))
+                    hist.append((float(row[0]), int(row[1]), int(row[2])))
                 except (TypeError, ValueError):
                     pass
-    if len(rows) > _WIP_TREND_MAX_POINTS:
-        rows = rows[-_WIP_TREND_MAX_POINTS:]
-    return rows
+    out: list[tuple[float, float, float]] = []
+    for i in range(len(hist)):
+        ts, nc, ns = hist[i]
+        j = max(0, i - _TREND_ROLLING_DEPARTURES)
+        t0, c0, s0 = hist[j]
+        dt = ts - t0
+        if dt <= 0:
+            continue
+        out.append((ts, round((nc - c0) / dt, 5), round((ns - s0) / dt, 5)))
+    if len(out) > _WIP_TREND_MAX_POINTS:
+        out = out[-_WIP_TREND_MAX_POINTS:]
+    return out
 
 
-def _rate_trend_apply_axes(fig: go.Figure, *, empty: bool) -> None:
+def _rate_trend_reset_y_peak_history_if_session(kpi: dict) -> None:
+    sid = str(kpi.get("session_id") or "")
+    prev = st.session_state.get(_SESSION_RATE_Y_SESSION)
+    if prev != sid:
+        st.session_state[_SESSION_RATE_Y_SESSION] = sid
+        st.session_state[_SESSION_RATE_Y_PEAKS] = []
+
+
+def _rate_trend_y_range(
+    kpi: dict, comp_y: list[float], scrap_y: list[float]
+) -> list[float]:
+    """[0, max_recent * 1.2] — 跨刷新保留峰值上限，避免 autorange 跳轴。"""
+    _rate_trend_reset_y_peak_history_if_session(kpi)
+    frame_max = 0.0
+    for v in comp_y + scrap_y:
+        try:
+            frame_max = max(frame_max, float(v))
+        except (TypeError, ValueError):
+            pass
+    peaks: list[float] = list(st.session_state.get(_SESSION_RATE_Y_PEAKS) or [])
+    peaks.append(frame_max)
+    if len(peaks) > _RATE_TREND_Y_MAX_HISTORY:
+        peaks = peaks[-_RATE_TREND_Y_MAX_HISTORY:]
+    st.session_state[_SESSION_RATE_Y_PEAKS] = peaks
+    peak = max(peaks) if peaks else 0.0
+    hi = peak * _RATE_TREND_Y_PAD
+    if hi <= 0:
+        hi = _RATE_TREND_Y_EMPTY_HI
+    return [0.0, hi]
+
+
+def _rate_trend_apply_axes(
+    fig: go.Figure, *, empty: bool, y_range: list[float] | None = None
+) -> None:
     _trend_apply_grid(fig)
-    fig.update_yaxes(
-        title=dict(text=""),
-        range=[0, 100],
-        autorange=False,
-        tickmode="array",
-        tickvals=[0, 25, 50, 75, 100],
-    )
+    if empty:
+        fig.update_yaxes(
+            title=dict(text=""),
+            range=[0.0, _RATE_TREND_Y_EMPTY_HI],
+            autorange=False,
+        )
+    else:
+        fig.update_yaxes(
+            title=dict(text=""),
+            range=y_range,
+            autorange=False,
+        )
     _trend_pair_apply_xaxis(fig, empty=empty)
 
 
@@ -1058,7 +1112,7 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
     fig = go.Figure()
     if not hist:
         fig.update_layout(
-            **_trend_pair_layout_extras(),
+            **_trend_pair_layout_extras(margin_left=40),
             title=_trend_chart_title(_CHART_TITLE_RATES),
         )
         _rate_trend_apply_axes(fig, empty=True)
@@ -1071,17 +1125,34 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
     scrap_y = [s for _, _, s in hist]
     n = len(hist)
     sample_idx = list(range(1, n + 1))
+    comp_c = _KPI_COLOR_COMPLETION
+    scrap_c = _KPI_COLOR_SCRAP
+    comp_mk = dict(
+        size=3,
+        color=comp_c,
+        symbol="circle",
+        line=dict(width=1, color="#ffffff"),
+    )
+    scrap_mk = dict(
+        size=3,
+        color=scrap_c,
+        symbol="circle",
+        line=dict(width=1, color="#ffffff"),
+    )
     fig.add_trace(
         go.Scatter(
             x=x_dt,
             y=comp_y,
-            mode="lines",
-            name="Completion (recent)",
-            line=dict(color="#16A34A", width=2),
+            mode="lines+markers",
+            name="Completion Rate (/s)",
+            line=dict(color=comp_c, width=2.5),
+            marker=comp_mk,
+            selected=dict(marker=dict(size=10, color=comp_c)),
+            unselected=dict(marker=dict(size=3, opacity=1.0)),
             customdata=sample_idx,
             hovertemplate=(
                 "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Completion: %{y:.1f}% (recent window)<extra></extra>"
+                "Completion Rate: %{y:.5g} /s (rolling window)<extra></extra>"
             ),
         )
     )
@@ -1089,21 +1160,26 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
         go.Scatter(
             x=x_dt,
             y=scrap_y,
-            mode="lines",
-            name="Scrap (recent)",
-            line=dict(color="#DC2626", width=2),
+            mode="lines+markers",
+            name="Scrap Rate (/s)",
+            line=dict(color=scrap_c, width=2.5),
+            marker=scrap_mk,
+            selected=dict(marker=dict(size=10, color=scrap_c)),
+            unselected=dict(marker=dict(size=3, opacity=1.0)),
             customdata=sample_idx,
             hovertemplate=(
                 "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Scrap: %{y:.1f}% (recent window)<extra></extra>"
+                "Scrap Rate: %{y:.5g} /s (rolling window)<extra></extra>"
             ),
         )
     )
     fig.update_layout(
-        **_trend_pair_layout_extras(),
+        **_trend_pair_layout_extras(margin_left=40),
         title=_trend_chart_title(_CHART_TITLE_RATES),
     )
-    _rate_trend_apply_axes(fig, empty=False)
+    _rate_trend_apply_axes(
+        fig, empty=False, y_range=_rate_trend_y_range(kpi, comp_y, scrap_y)
+    )
     return fig
 
 
@@ -1120,14 +1196,16 @@ def render_kpi_trends_block(kpi: dict | None) -> None:
             st.plotly_chart(
                 _fig_wip_over_time(k),
                 use_container_width=True,
-                config={"displayModeBar": False},
+                height=_TREND_PLOTLY_CONTAINER_HEIGHT,
+                config=_TREND_PLOT_CONFIG,
                 key="kpi_trend_wip_over_time",
             )
         with c2:
             st.plotly_chart(
                 _fig_completion_scrap_over_time(k),
                 use_container_width=True,
-                config={"displayModeBar": False},
+                height=_TREND_PLOTLY_CONTAINER_HEIGHT,
+                config=_TREND_PLOT_CONFIG,
                 key="kpi_trend_completion_scrap",
             )
     
@@ -1165,10 +1243,6 @@ def render_kpi_dashboard(
         with st.container(key="kpi_stage_station_panel"):
             with st.container(key="kpi_stage_col"):
                 render_stage_kpi_group(kpi)
-                st.markdown(
-                    '<div class="kpi-stage-spacer" aria-hidden="true"></div>',
-                    unsafe_allow_html=True,
-                )
             render_station_card_grid(
                 kpi,
                 cols_per_row=cols_per_row,

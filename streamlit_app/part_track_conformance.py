@@ -3,7 +3,17 @@ from __future__ import annotations
 
 import copy
 import html as html_module
+import re
 from typing import Any, TypedDict
+
+
+def _natural_part_id_key(pid: str) -> tuple:
+    """p1, p2, … p10（与 neo4j_backend.natural_part_id_key 一致）。"""
+    s = (pid or "").strip()
+    m = re.match(r"^[Pp]?(\d+)$", s)
+    if m:
+        return (0, int(m.group(1)), s.lower())
+    return (1, 0, s.lower())
 
 
 class TraceActivityStyle(TypedDict):
@@ -87,19 +97,19 @@ LOCATION_MAP: dict[str, str] = {
 
 MEANINGFUL_EVENTS: dict[str, frozenset[str]] = {
     "corner2": frozenset({"START"}),
-    "station11": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL"}),
-    "station21": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL"}),
-    "station22": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL"}),
-    "station31": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL"}),
-    "station41": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL"}),
-    "station51": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL"}),
-    "station52": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL"}),
-    "station61": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL"}),
-    "station71": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL"}),
+    "station11": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station21": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station22": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station31": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station41": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station51": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station52": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station61": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
+    "station71": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
     "splitter1": frozenset({"FORWARD"}),
     "splitter3": frozenset({"FORWARD", "RETURN"}),
     "splitter4": frozenset({"FORWARD", "RETURN"}),
-    "splitter5": frozenset({"FINISH", "SCRAP"}),
+    "splitter5": frozenset({"CHECKOUT", "FINISH", "SCRAP"}),
 }
 
 CELL_SYMBOL: dict[str, str] = {
@@ -194,6 +204,9 @@ def conformance_column_display(rep: dict[str, Any]) -> tuple[str, str]:
         return "\u2014", "neutral"
     if rep.get("lap_open"):
         return "\u2014 In progress", "in_progress"
+    laps = rep.get("laps") or []
+    if laps and str(laps[-1].get("outcome") or "") == "SCRAP":
+        return "\u2717 Scrap", "scrap"
     lab, _, st = _lap_conformance_label_color_status(
         rep["display_grid"],
         rep.get("last_closed_lap_failed_stations") or set(),
@@ -310,10 +323,7 @@ def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
                 failed_stations = set()
                 continue
 
-            if act == "SCRAP":
-                for sl in SLOTS:
-                    if grid.get(sl) != "NOT_DONE":
-                        grid[sl] = "SCRAP"
+            if comp == "splitter5" and act == "SCRAP":
                 archive_lap("SCRAP", ts, copy.deepcopy(grid), set())
                 last_closed_grid = copy.deepcopy(grid)
                 last_closed_lap_failed_stations = set()
@@ -403,6 +413,8 @@ def trace_activity_color(activity: str) -> TraceActivityStyle:
         return {"color": "#d2a8ff", "opacity": 1.0, "bold": True}
     if act == "FAIL":
         return {"color": "#f85149", "opacity": 1.0, "bold": True}
+    if act == "BLOCK":
+        return {"color": "#ffa657", "opacity": 1.0, "bold": True}
     if act == "START":
         return {"color": "#e6edf3", "opacity": 1.0, "bold": False}
     if act == "FINISH":
@@ -747,18 +759,9 @@ def build_session_table_rows(parts: list[dict]) -> list[dict]:
         steps = list(p.get("steps") or [])
         rows.append(build_table_row(pid, steps))
 
-    def _sort_key(row: dict) -> tuple:
-        pid = str(row.get("Part ID") or "")
-        steps = row.get("_steps") or []
-        ts = 0.0
-        if steps:
-            try:
-                ts = float(steps[0].get("timestamp") or 0.0)
-            except (TypeError, ValueError):
-                ts = 0.0
-        return (ts, pid)
-
-    rows.sort(key=_sort_key)
+    rows.sort(
+        key=lambda row: _natural_part_id_key(str(row.get("Part ID") or ""))
+    )
     return rows
 
 

@@ -10,6 +10,8 @@
 #   corner2 START assigns transit stage 1 until first anchor LOAD. Stage4: splitter3/4 one exit per
 #   ``station41`` LOAD per part. Looping substations (station22 / station51 / station52) re-enter same stage.
 # Station: BUSY / FAIL / BLOCKED / IDLE state machine; utilization = P_busy + P_fail.
+# BLOCK @ station*: downstream blocked before UNLOAD → BLOCKED (not extended BUSY).
+# splitter5 CHECKOUT: pre-notification before FINISH/SCRAP; ignored for KPI counts.
 #
 # Part id: part_id, partId, entity_id, entityId — see _extract_part_id.
 
@@ -409,6 +411,9 @@ class KpiCalculator:
                 self._append_sys_wip(ts)
                 self.sys_start_time[part_id] = ts
 
+        if comp == "splitter5" and act_u == "CHECKOUT":
+            pass  # hardware pre-signal; FINISH/SCRAP follow immediately
+
         if comp == "splitter5" and act_u in self._finish_upper and part_id:
             had = part_id in self._open_lap
             w_before = self.sys_wip
@@ -497,6 +502,11 @@ class KpiCalculator:
                 if part_id:
                     self._stn_state[comp]["part"] = part_id
             elif act_u == "UNLOAD":
+                self._stn_touched.add(comp)
+                self._stn_ensure(comp, ts)
+                if self._stn_state[comp]["state"] in ("BUSY", "FAIL"):
+                    self._stn_set_state(comp, "BLOCKED", ts)
+            elif act_u == "BLOCK":
                 self._stn_touched.add(comp)
                 self._stn_ensure(comp, ts)
                 if self._stn_state[comp]["state"] in ("BUSY", "FAIL"):
@@ -644,6 +654,10 @@ class KpiCalculator:
                 self.sys_rate_history[-200:]
             )
         ]
+        trend_departure_history: list[list[float | int]] = [
+            [float(ts), int(nc), int(ns)]
+            for ts, nc, ns in self.sys_rate_history[-200:]
+        ]
         _fct_cap = self.finished_cycle_times[-1000:]
         trend_finished_cycle_times: list[float] = [round(float(x), 4) for x in _fct_cap]
 
@@ -652,6 +666,7 @@ class KpiCalculator:
             "stages": stages_out,
             "trend_sys_wip_history": trend_sys_wip_history,
             "trend_rate_history": trend_rate_history,
+            "trend_departure_history": trend_departure_history,
             "trend_finished_cycle_times": trend_finished_cycle_times,
             # --- backward-compatible top-level keys (MQTT / tests) ---
             "throughput": complete_rate,

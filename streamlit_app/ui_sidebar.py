@@ -19,10 +19,10 @@ _GLOBAL_APP_FONT_CSS = """
         padding-top: 1rem !important;
     }
     div[data-testid="stMainBlockContainer"] h1 {
-        font-size: 2.05rem !important;
+        font-size: 1.88rem !important;
     }
     div[data-testid="stMainBlockContainer"] h2 {
-        font-size: 1.7rem !important;
+        font-size: 1.65rem !important;
     }
     div[data-testid="stMainBlockContainer"] h3 {
         font-size: 1.4rem !important;
