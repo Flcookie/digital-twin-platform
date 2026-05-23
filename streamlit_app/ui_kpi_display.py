@@ -704,10 +704,10 @@ def render_system_kpi_group(
     with col4:
         st.markdown(
             _pair_card_html(
-                "Lead Time (s)",
+                "Avg Lead Time (Finished)",
                 lead_fin_text,
                 _KPI_COLOR_LEAD,
-                "Lead Time all (s)",
+                "Avg Lead Time (Finished+Scrapped)",
                 lead_all_text,
                 _KPI_COLOR_LEAD,
             ),
