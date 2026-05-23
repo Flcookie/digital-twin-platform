@@ -39,8 +39,38 @@ _UI_THEME: dict[str, str] = {
     "indigo": "#6366f1",
 }
 
-# Plotly 与 Streamlit 共用：与 ui_theme Barlow Condensed 一致
+# Plotly 与 Streamlit 共用：Barlow Condensed（与 ui_sidebar 一致）
 _PLOT_FONT = '"Barlow Condensed", "Segoe UI", sans-serif'
+
+# 字号层级（优化2 版式定稿 · B；本轮只统一字号，不改布局/颜色）
+_FONT_L1_PX = 24   # section：System KPI
+_FONT_L2_PX = 20   # section：Trends / Stage / Station；图表标题
+_FONT_L3_PX = 14   # 指标名、工站名、柱图轴
+_FONT_L4_SYSTEM_PX = 30  # System 双行卡主数值
+_FONT_L4_STAGE_PX = 28   # Stage 卡主数值
+_FONT_L4_STAGE_THR_PX = 30  # Stage Throughput 略强调
+_FONT_L5_PX = 12   # caption、hover、副标题
+_FONT_CHART_TITLE_PX = 18  # Plotly 图标题（与 L2 section 区分）
+_FONT_CHART_AXIS_PX = 14
+_FONT_STAGE_NAME_PX = 18  # Stage 卡内阶段名
+
+# Trends 双图：等高、同 margin；仅使用 KPI 内 trend_* 序列（不用 MQTT 缓冲假滚动）
+_WIP_TREND_MAX_POINTS = 20
+_TREND_CHART_HEIGHT = 250
+_TREND_PAIR_MARGIN = dict(t=42, b=36, l=60, r=20)
+_CHART_TITLE_WIP = "WIP (pcs)"
+_CHART_TITLE_RATES = "Completion & Scrap (%)"
+
+# System / Stage 指标数值色（同一语义同一色）
+_KPI_COLOR_WIP = "#1565c0"
+_KPI_COLOR_COMPLETION = "#2e7d32"
+_KPI_COLOR_SCRAP = "#c62828"
+_KPI_COLOR_LEAD = "#e65100"
+_KPI_COLOR_DEFAULT = "#1a2332"
+_STAGE_TITLE_COLOR = "#1e293b"
+_STAGE_BADGE_BG = "#f1f5f9"
+_STAGE_BADGE_TEXT = "#64748b"
+_STAGE_CARD_ACCENT = "#e2e8f0"
 
 _KPI_SECTION_TITLE_CSS = """
 <style>
@@ -57,19 +87,19 @@ _KPI_SECTION_TITLE_CSS = """
         color: #1e293b !important;
     }
     div[data-testid="stMainBlockContainer"] .kpi-sec-title--system {
-        font-size: 24px !important;
+        font-size: """ + str(_FONT_L1_PX) + """px !important;
         border-left-color: #0284c7 !important;
     }
     div[data-testid="stMainBlockContainer"] .kpi-sec-title--stage {
-        font-size: 20px !important;
+        font-size: """ + str(_FONT_L2_PX) + """px !important;
         border-left-color: #64748b !important;
     }
     div[data-testid="stMainBlockContainer"] .kpi-sec-title--station {
-        font-size: 20px !important;
+        font-size: """ + str(_FONT_L2_PX) + """px !important;
         border-left-color: #cbd5e1 !important;
     }
     div[data-testid="stMainBlockContainer"] .kpi-sec-title--trends {
-        font-size: 20px !important;
+        font-size: """ + str(_FONT_L2_PX) + """px !important;
         border-left-color: #0284c7 !important;
     }
     /* Stage | Station 并列：行高随右列拉伸，左列 flex + 底部 spacer 填满 */
@@ -100,10 +130,15 @@ _KPI_SECTION_TITLE_CSS = """
         background: linear-gradient(165deg, #f8fafc 0%, #ffffff 55%) !important;
         border: 1px solid #e2e8f0 !important;
         border-radius: 12px !important;
-        border-top: 3px solid #0284c7 !important;
         padding: 16px 20px !important;
         margin-bottom: 20px !important;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    }
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] {
+        min-height: """ + str(_TREND_CHART_HEIGHT + 28) + """px !important;
+    }
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_trends_wrap [data-testid="stPlotlyChart"] > div {
+        height: """ + str(_TREND_CHART_HEIGHT + 28) + """px !important;
     }
 </style>
 """
@@ -141,11 +176,11 @@ _STATE_LABEL_EN = {
     "idle": "Idle",
 }
 
-# Station state semantics (bars, pills, stacked strip)
-_STATION_BUSY_COLOR = "#eab308"
+# Station state semantics（优化2 定稿：Busy 绿 / Idle 灰 / Blocked 黄 / Fail 红）
+_STATION_BUSY_COLOR = "#22c55e"
 _STATION_FAIL_COLOR = "#ef4444"
-_STATION_BLOCKED_COLOR = "#94a3b8"
-_STATION_IDLE_COLOR = "#22c55e"
+_STATION_BLOCKED_COLOR = "#eab308"
+_STATION_IDLE_COLOR = "#94a3b8"
 
 def station_kpi_display_name(sid: str) -> str:
     """工站 KPI 卡片标题：M1-1 …（与 Twin 一致；未知 id 则回退为原 id）。"""
@@ -160,7 +195,7 @@ def _dominant_state_key(pn: dict[str, float]) -> str:
 
 
 def _state_key_dot_and_color(state_key: str) -> tuple[str, str]:
-    """Busy=黄 / Failed=红 / Blocked=灰 / Idle=绿。"""
+    """Busy=绿 / Fail=红 / Blocked=黄 / Idle=灰。"""
     k = (state_key or "idle").strip().lower()
     if k == "busy":
         return "\u25cf", _STATION_BUSY_COLOR
@@ -226,7 +261,7 @@ def _four_state_percent_ints(b: float, f: float, bl: float, i: float) -> tuple[i
 
 
 def _station_stacked_bar_html(pn: dict[str, float]) -> str:
-    """单行四色堆叠条（无图例；Idle 段 #e0e0e0）。宽度用整数百分比保证全 Idle 时整段灰。"""
+    """单行四色堆叠条（无图例；全 Idle 时整段为 Idle 灰）。"""
     b = max(0.0, min(1.0, float(pn.get("busy", 0.0) or 0.0)))
     f = max(0.0, min(1.0, float(pn.get("fail", 0.0) or 0.0)))
     bl = max(0.0, min(1.0, float(pn.get("blocked", 0.0) or 0.0)))
@@ -293,7 +328,7 @@ def _station_compact_card_html(
     line_lbl = html.escape(_STATE_LABEL_EN.get(dom, dom.title()))
     title_esc = html.escape(station_kpi_display_name(sid))
     top_bar = (
-        "<div style='font-size:0.88rem;font-family:\"Barlow Condensed\",\"Segoe UI\",sans-serif;"
+        f"<div style='font-size:{_FONT_L5_PX}px;font-family:\"Barlow Condensed\",\"Segoe UI\",sans-serif;"
         "color:{};margin:0 0 2px 0;line-height:1.35;letter-spacing:0.01em;"
         "display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;'>"
         "<span style='font-weight:700;color:{};'>{}</span>"
@@ -379,16 +414,16 @@ def render_station_card_grid(
         pills += (
             '<span style="display:inline-flex;align-items:center;justify-content:center;gap:6px;'
             'background:#f5f5f5;border-radius:18px;padding:7px 12px;'
-            'margin:0;font-size:16px;width:100%;box-sizing:border-box;">'
-            f'<span style="color:{color};font-size:15px">{dot}</span>'
-            f'<span style="color:#333;font-weight:700;font-size:16px">{html.escape(name)}</span>'
-            f'<span style="color:{color};font-size:15px">{html.escape(state.capitalize())}</span>'
+            f'margin:0;font-size:{_FONT_L3_PX}px;width:100%;box-sizing:border-box;">'
+            f'<span style="color:{color};font-size:{_FONT_L3_PX}px">{dot}</span>'
+            f'<span style="color:#333;font-weight:700;font-size:{_FONT_L3_PX}px">{html.escape(name)}</span>'
+            f'<span style="color:{color};font-size:{_FONT_L3_PX}px">{html.escape(state.capitalize())}</span>'
             "</span>"
         )
     st.markdown(
         (
             '<div style="margin-bottom:12px;">'
-            '<div style="font-size:13px;color:#9e9e9e;margin-bottom:4px;">'
+            f'<div style="font-size:{_FONT_L3_PX}px;color:#9e9e9e;margin-bottom:4px;">'
             "State"
             "</div>"
             '<div style="display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:10px;align-items:center;">'
@@ -409,7 +444,7 @@ def render_station_card_grid(
 
     _STATION_HOVER = dict(
         bgcolor="#1e2a3a",
-        font_size=12,
+        font_size=_FONT_L5_PX,
         font_family=_PLOT_FONT,
         font_color="#e0e6f0",
         bordercolor="#444c56",
@@ -448,11 +483,11 @@ def render_station_card_grid(
                         y=val + 1.0,
                         text="{:.0f}".format(val),
                         showarrow=False,
-                        font=dict(size=12, color=color, family=_PLOT_FONT),
+                        font=dict(size=_FONT_L5_PX, color=color, family=_PLOT_FONT),
                         yanchor="bottom",
                     )
         fig.update_layout(
-            title=dict(text=title, font=dict(size=18, family=_PLOT_FONT)),
+            title=dict(text=title, font=dict(size=_FONT_CHART_TITLE_PX, family=_PLOT_FONT)),
             height=200,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#f8f9fa",
@@ -461,10 +496,10 @@ def render_station_card_grid(
                 range=[0, y_max],
                 dtick=25,
                 title=dict(text=""),
-                tickfont=dict(size=14),
+                tickfont=dict(size=_FONT_CHART_AXIS_PX),
             ),
-            xaxis=dict(tickfont=dict(size=14)),
-            font=dict(size=15, color="#546e7a", family=_PLOT_FONT),
+            xaxis=dict(tickfont=dict(size=_FONT_CHART_AXIS_PX)),
+            font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
             showlegend=False,
             hoverlabel=_STATION_HOVER,
         )
@@ -572,40 +607,41 @@ def render_system_kpi_group(
         bottom_label_e = html.escape(str(bottom_label))
         bottom_value_e = html.escape(str(bottom_value))
         top_sub_html = ""
+        l3, l4, l5 = _FONT_L3_PX, _FONT_L4_SYSTEM_PX, _FONT_L5_PX
         if top_sub:
             if top_sub_inline:
                 top_sub_html = (
-                    f'<span style="font-size:13px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</span>'
+                    f'<span style="font-size:{l5}px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</span>'
                 )
             else:
                 top_sub_html = (
-                    f'<div style="font-size:14px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</div>'
+                    f'<div style="font-size:{l3}px;color:#9aa4af;line-height:1.2;">{html.escape(str(top_sub))}</div>'
                 )
         bottom_sub_html = ""
         if bottom_sub:
             if bottom_sub_inline:
                 bottom_sub_html = (
-                    f'<span style="font-size:13px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</span>'
+                    f'<span style="font-size:{l5}px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</span>'
                 )
             else:
                 bottom_sub_html = (
-                    f'<div style="font-size:14px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</div>'
+                    f'<div style="font-size:{l3}px;color:#9aa4af;line-height:1.2;">{html.escape(str(bottom_sub))}</div>'
                 )
         top_title_html = (
             f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;">'
-            f'<span style="font-size:19px;color:#546e7a;font-weight:600;white-space:nowrap;">{top_label_e}</span>'
+            f'<span style="font-size:{l3}px;color:#546e7a;font-weight:600;white-space:nowrap;">{top_label_e}</span>'
             f'{top_sub_html}'
             "</div>"
             if top_sub_inline
-            else f'<div style="font-size:17px;color:#546e7a;">{top_label_e}</div>{top_sub_html}'
+            else f'<div style="font-size:{l3}px;color:#546e7a;font-weight:600;">{top_label_e}</div>{top_sub_html}'
         )
         bottom_title_html = (
             f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;">'
-            f'<span style="font-size:19px;color:#546e7a;font-weight:600;white-space:nowrap;">{bottom_label_e}</span>'
+            f'<span style="font-size:{l3}px;color:#546e7a;font-weight:600;white-space:nowrap;">{bottom_label_e}</span>'
             f'{bottom_sub_html}'
             "</div>"
             if bottom_sub_inline
-            else f'<div style="font-size:17px;color:#546e7a;">{bottom_label_e}</div>{bottom_sub_html}'
+            else f'<div style="font-size:{l3}px;color:#546e7a;font-weight:600;">{bottom_label_e}</div>{bottom_sub_html}'
         )
         return (
             '<div style="background:white;border:1px solid #e0e0e0;border-radius:8px;'
@@ -613,25 +649,20 @@ def render_system_kpi_group(
             'margin-bottom:6px;">'
             '<div style="min-height:68px;display:flex;flex-direction:column;justify-content:flex-start;">'
             f"{top_title_html}"
-            f'<div style="font-size:30px;font-weight:700;color:{top_color};line-height:1.15;">{top_value_e}</div>'
+            f'<div style="font-size:{l4}px;font-weight:700;color:{top_color};line-height:1.15;">{top_value_e}</div>'
             '</div>'
             '<div style="border-top:1px solid #f0f0f0;padding-top:10px;min-height:64px;'
             'display:flex;flex-direction:column;justify-content:flex-start;">'
             f"{bottom_title_html}"
-            f'<div style="font-size:30px;font-weight:700;color:{bottom_color};line-height:1.15;">{bottom_value_e}</div>'
+            f'<div style="font-size:{l4}px;font-weight:700;color:{bottom_color};line-height:1.15;">{bottom_value_e}</div>'
             '</div>'
             '</div>'
         )
 
-    departed = v["n_comp"] + v["n_scrap"]
-    completion_pct = (
-        "{:.1f}".format(float(v["yield_rate"]) * 100.0) if departed > 0 else "—"
-    )
-    scrap_pct = (
-        "{:.1f}".format(float(v["sr"]) * 100.0) if departed > 0 else "—"
-    )
-    lead_fin_text = "{:.1f}".format(v["ct_fin"]) if float(v["ct_fin"]) > 0 else "—"
-    lead_all_text = "{:.1f}".format(v["ct_all"]) if float(v["ct_all"]) > 0 else "—"
+    completion_pct = "{:.1f}".format(float(v["yield_rate"]) * 100.0)
+    scrap_pct = "{:.1f}".format(float(v["sr"]) * 100.0)
+    lead_fin_text = "{:.1f}".format(float(v["ct_fin"]))
+    lead_all_text = "{:.1f}".format(float(v["ct_all"]))
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -639,10 +670,10 @@ def render_system_kpi_group(
             _pair_card_html(
                 "WIP (pcs)",
                 str(v["wip"]),
-                "#1565c0",
+                _KPI_COLOR_WIP,
                 "AVG WIP (pcs)",
                 "{:.3f}".format(v["awip"]),
-                "#1565c0",
+                _KPI_COLOR_WIP,
             ),
             unsafe_allow_html=True,
         )
@@ -651,10 +682,10 @@ def render_system_kpi_group(
             _pair_card_html(
                 "Completions",
                 str(v["n_comp"]),
-                "#2e7d32",
+                _KPI_COLOR_COMPLETION,
                 "Completion Rate (%)",
                 completion_pct,
-                "#2e7d32",
+                _KPI_COLOR_COMPLETION,
             ),
             unsafe_allow_html=True,
         )
@@ -663,10 +694,10 @@ def render_system_kpi_group(
             _pair_card_html(
                 "Scraps",
                 str(v["n_scrap"]),
-                "#c62828",
+                _KPI_COLOR_SCRAP,
                 "Scrap Rate (%)",
                 scrap_pct,
-                "#c62828",
+                _KPI_COLOR_SCRAP,
             ),
             unsafe_allow_html=True,
         )
@@ -675,10 +706,10 @@ def render_system_kpi_group(
             _pair_card_html(
                 "Lead Time (s)",
                 lead_fin_text,
-                "#e65100",
+                _KPI_COLOR_LEAD,
                 "Lead Time all (s)",
                 lead_all_text,
-                "#e65100",
+                _KPI_COLOR_LEAD,
             ),
             unsafe_allow_html=True,
         )
@@ -692,12 +723,12 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
         unsafe_allow_html=True,
     )
     stage_cfg = {
-        1: {"name": "Stage 1", "type": "Non-Looping", "color": "#1565c0", "bg": "#e3f2fd", "text": "#0c447c"},
-        2: {"name": "Stage 2", "type": "Looping", "color": "#6a1b9a", "bg": "#f3e5f5", "text": "#3c3489"},
-        3: {"name": "Stage 3", "type": "Non-Looping", "color": "#1565c0", "bg": "#e3f2fd", "text": "#0c447c"},
-        4: {"name": "Stage 4", "type": "Looping", "color": "#6a1b9a", "bg": "#f3e5f5", "text": "#3c3489"},
-        5: {"name": "Stage 5", "type": "Non-Looping", "color": "#1565c0", "bg": "#e3f2fd", "text": "#0c447c"},
-        6: {"name": "Stage 6", "type": "Looping", "color": "#6a1b9a", "bg": "#f3e5f5", "text": "#3c3489"},
+        1: {"name": "Stage 1", "type": "Non-Looping"},
+        2: {"name": "Stage 2", "type": "Looping"},
+        3: {"name": "Stage 3", "type": "Non-Looping"},
+        4: {"name": "Stage 4", "type": "Looping"},
+        5: {"name": "Stage 5", "type": "Non-Looping"},
+        6: {"name": "Stage 6", "type": "Looping"},
     }
     def _stage_card_html(s: int) -> str:
         data = stg.get("stage{}".format(s)) or stg.get(str(s)) or {}
@@ -708,42 +739,46 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
         wip_v = int(data.get("wip_instantaneous", data.get("instantaneous_wip", 0)) or 0)
         dep_v = int(data.get("num_departures", data.get("departures", 0)) or 0)
 
-        thr = "{:.4f}".format(thr_v) if thr_v > 0 else "—"
-        ft = "{:.1f}".format(ft_v) if ft_v > 0 else "—"
+        thr = "{:.4f}".format(thr_v)
+        ft = "{:.1f}".format(ft_v)
         awip = "{:.3f}".format(awip_v)
         wip = str(wip_v)
         dep = str(dep_v)
+        l3, l4, l4t, l5n = _FONT_L3_PX, _FONT_L4_STAGE_PX, _FONT_L4_STAGE_THR_PX, _FONT_STAGE_NAME_PX
+        c_wip, c_lead, c_def = _KPI_COLOR_WIP, _KPI_COLOR_LEAD, _KPI_COLOR_DEFAULT
+        c_title, c_badge_bg, c_badge_txt = _STAGE_TITLE_COLOR, _STAGE_BADGE_BG, _STAGE_BADGE_TEXT
+        c_accent = _STAGE_CARD_ACCENT
         return f"""
 <div style="background:white;border:0.5px solid #e0e0e0;
-            border-radius:12px;border-left:3px solid {cfg['color']};
+            border-radius:12px;border-left:3px solid {c_accent};
             padding:14px 18px;margin-bottom:8px;">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-    <span style="font-size:18px;font-weight:700;color:{cfg['color']};">{cfg['name']}</span>
-    <span style="background:{cfg['bg']};color:{cfg['text']};font-size:14px;
+    <span style="font-size:{l5n}px;font-weight:700;color:{c_title};">{cfg['name']}</span>
+    <span style="background:{c_badge_bg};color:{c_badge_txt};font-size:{l3}px;
                  font-weight:500;padding:2px 8px;border-radius:20px;">
       {cfg['type']}
     </span>
   </div>
   <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;">
     <div>
-      <div style="font-size:14px;color:#64748b;margin-bottom:3px;font-weight:600;">WIP (pcs)</div>
-      <div style="font-size:28px;font-weight:700;color:#1a2332;">{wip}</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">WIP (pcs)</div>
+      <div style="font-size:{l4}px;font-weight:700;color:{c_wip};">{wip}</div>
     </div>
     <div>
-      <div style="font-size:14px;color:#64748b;margin-bottom:3px;font-weight:600;">AVG WIP (pcs)</div>
-      <div style="font-size:28px;font-weight:700;color:#1a2332;">{awip}</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">AVG WIP (pcs)</div>
+      <div style="font-size:{l4}px;font-weight:700;color:{c_wip};">{awip}</div>
     </div>
     <div>
-      <div style="font-size:14px;color:#64748b;margin-bottom:3px;font-weight:600;">Lead Time (s)</div>
-      <div style="font-size:28px;font-weight:700;color:#1a2332;">{ft}</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Avg Flow Time (s)</div>
+      <div style="font-size:{l4}px;font-weight:700;color:{c_lead};">{ft}</div>
     </div>
     <div>
-      <div style="font-size:14px;color:#64748b;margin-bottom:3px;font-weight:600;">Throughput (/s)</div>
-      <div style="font-size:30px;font-weight:700;color:{cfg['color']};">{thr}</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Throughput (/s)</div>
+      <div style="font-size:{l4t}px;font-weight:700;color:{c_def};">{thr}</div>
     </div>
     <div>
-      <div style="font-size:14px;color:#9e9e9e;margin-bottom:3px;">Departures</div>
-      <div style="font-size:28px;font-weight:700;color:#1a2332;">{dep}</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Departures</div>
+      <div style="font-size:{l4}px;font-weight:700;color:{c_def};">{dep}</div>
     </div>
   </div>
 </div>
@@ -767,13 +802,13 @@ def replay_age_seconds(last_update_unix: float) -> float | None:
 def _trend_chart_title(text: str) -> dict[str, Any]:
     return dict(
         text=text,
-        font=dict(family=_PLOT_FONT, size=18, color=_UI_THEME["text"]),
+        font=dict(family=_PLOT_FONT, size=_FONT_CHART_TITLE_PX, color=_UI_THEME["text"]),
     )
 
 
 _TREND_HOVERLABEL: dict[str, Any] = dict(
     bgcolor="#1e2a3a",
-    font_size=12,
+    font_size=_FONT_L5_PX,
     font_family=_PLOT_FONT,
     font_color="#e0e6f0",
     bordercolor="#444c56",
@@ -786,7 +821,7 @@ def _trend_layout_common(*, showlegend: bool) -> dict[str, Any]:
         "plot_bgcolor": "#f8f9fa",
         "margin": dict(t=36, b=30, l=50, r=20),
         "height": 260,
-        "font": dict(family=_PLOT_FONT, size=15, color="#546e7a"),
+        "font": dict(family=_PLOT_FONT, size=_FONT_CHART_AXIS_PX, color="#546e7a"),
         "showlegend": showlegend,
         "hovermode": "x unified",
         "hoverlabel": _TREND_HOVERLABEL,
@@ -799,7 +834,7 @@ def _trend_layout_common(*, showlegend: bool) -> dict[str, Any]:
             yanchor="top",
             bgcolor="rgba(255,255,255,0.8)",
             borderwidth=0,
-            font=dict(size=14, color="#546e7a", family=_PLOT_FONT),
+            font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
         )
     return d
 
@@ -807,8 +842,8 @@ def _trend_layout_common(*, showlegend: bool) -> dict[str, Any]:
 def _trend_apply_grid(fig: go.Figure) -> None:
     g = _UI_THEME["border"]
     z = _UI_THEME["border2"]
-    ax_font = dict(size=14, color=_UI_THEME["text_dim"])
-    title_font = dict(size=15, color=_UI_THEME["text_dim"], family=_PLOT_FONT)
+    ax_font = dict(size=_FONT_CHART_AXIS_PX, color=_UI_THEME["text_dim"])
+    title_font = dict(size=_FONT_CHART_AXIS_PX, color=_UI_THEME["text_dim"], family=_PLOT_FONT)
     fig.update_xaxes(
         showgrid=False,
         gridcolor=g,
@@ -831,11 +866,6 @@ def _trend_apply_grid(fig: go.Figure) -> None:
     )
 
 
-_WIP_TREND_MAX_POINTS = 20
-_TREND_CHART_HEIGHT = 250
-_TREND_PAIR_MARGIN = dict(t=42, b=36, l=60, r=20)
-
-
 def _trend_pair_layout_extras() -> dict[str, Any]:
     """Trends 双图共用：等高、margin 对齐、图例右上。"""
     base = _trend_layout_common(showlegend=True)
@@ -849,7 +879,7 @@ def _trend_pair_layout_extras() -> dict[str, Any]:
         yanchor="bottom",
         bgcolor="rgba(255,255,255,0)",
         borderwidth=0,
-        font=dict(size=14, color="#546e7a", family=_PLOT_FONT),
+        font=dict(size=_FONT_CHART_AXIS_PX, color="#546e7a", family=_PLOT_FONT),
     )
     return base
 
@@ -862,6 +892,24 @@ def _trend_pair_apply_xaxis(fig: go.Figure, *, empty: bool) -> None:
         nticks=4,
         tickangle=0,
     )
+
+
+def _wip_trend_series_average(hist: list[tuple[float, int]]) -> float:
+    """Time-weighted mean over the points actually drawn (not full-run system avg)."""
+    if not hist:
+        return 0.0
+    if len(hist) == 1:
+        return float(hist[0][1])
+    total = 0.0
+    for i in range(len(hist) - 1):
+        t0, w = hist[i]
+        t1, _ = hist[i + 1]
+        total += float(w) * max(0.0, t1 - t0)
+    tail = max(0.0, hist[-1][0] - hist[-2][0])
+    last_t, last_w = hist[-1]
+    total += float(last_w) * tail
+    span = max(0.001, (hist[-1][0] - hist[0][0]) + tail)
+    return total / span
 
 
 def _wip_trend_y_range(ys: list[int], avg_w: float, *, pad: float = 2.0) -> list[float]:
@@ -883,8 +931,8 @@ def _wip_trend_apply_axes(
     if empty:
         fig.update_yaxes(
             title=dict(text=""),
-            rangemode="tozero",
-            autorange=True,
+            range=[0, 4],
+            autorange=False,
             nticks=5,
             tickformat="d",
         )
@@ -901,24 +949,13 @@ def _wip_trend_apply_axes(
 
 
 def _fig_wip_over_time(kpi: dict) -> go.Figure:
-    raw = kpi.get("trend_sys_wip_history")
-    hist: list[tuple[float, int]] = []
-    if isinstance(raw, list):
-        for row in raw:
-            if isinstance(row, (list, tuple)) and len(row) >= 2:
-                try:
-                    hist.append((float(row[0]), int(row[1])))
-                except (TypeError, ValueError):
-                    pass
-    if len(hist) > _WIP_TREND_MAX_POINTS:
-        hist = hist[-_WIP_TREND_MAX_POINTS:]
-    sysb = kpi.get("system") or {}
-    avg_w = float(sysb.get("wip_average", kpi.get("avg_wip", 0)) or 0)
+    hist = _parse_wip_trend_hist(kpi)
+    avg_w = _wip_trend_series_average(hist)
     fig = go.Figure()
     if not hist:
         fig.update_layout(
             **_trend_pair_layout_extras(),
-            title=_trend_chart_title("WIP (pcs)"),
+            title=_trend_chart_title(_CHART_TITLE_WIP),
         )
         _wip_trend_apply_axes(fig, empty=True)
         return fig
@@ -958,12 +995,14 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
             mode="lines",
             name="AVG WIP",
             line=dict(color="#ff9800", width=2, dash="6px,3px"),
-            hovertemplate="Avg: %{y:.2f}<extra></extra>",
+            hovertemplate=(
+                "AVG WIP (this window): %{y:.2f}<extra></extra>"
+            ),
         )
     )
     fig.update_layout(
         **_trend_pair_layout_extras(),
-        title=_trend_chart_title("WIP (pcs)"),
+        title=_trend_chart_title(_CHART_TITLE_WIP),
     )
     _wip_trend_apply_axes(
         fig, empty=False, y_range=_wip_trend_y_range(ys, avg_w)
@@ -971,8 +1010,23 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
     return fig
 
 
+def _parse_wip_trend_hist(kpi: dict) -> list[tuple[float, int]]:
+    raw = kpi.get("trend_sys_wip_history")
+    hist: list[tuple[float, int]] = []
+    if isinstance(raw, list):
+        for row in raw:
+            if isinstance(row, (list, tuple)) and len(row) >= 2:
+                try:
+                    hist.append((float(row[0]), int(row[1])))
+                except (TypeError, ValueError):
+                    pass
+    if len(hist) > _WIP_TREND_MAX_POINTS:
+        hist = hist[-_WIP_TREND_MAX_POINTS:]
+    return hist
+
+
 def _trend_rate_points(kpi: dict) -> list[tuple[float, float, float]]:
-    """(unix_ts, completion_rate_pct, scrap_rate_pct) aligned with WIP trend timestamps."""
+    """(unix_ts, completion_rate_pct, scrap_rate_pct) — 仅 trend_rate_history，与 WIP 同源采样。"""
     rows: list[tuple[float, float, float]] = []
     raw = kpi.get("trend_rate_history")
     if isinstance(raw, list):
@@ -982,27 +1036,6 @@ def _trend_rate_points(kpi: dict) -> list[tuple[float, float, float]]:
                     rows.append((float(item[0]), float(item[1]), float(item[2])))
                 except (TypeError, ValueError):
                     pass
-    if rows:
-        if len(rows) > _WIP_TREND_MAX_POINTS:
-            rows = rows[-_WIP_TREND_MAX_POINTS:]
-        return rows
-    try:
-        import mqtt_backend
-
-        for row in mqtt_backend.get_kpi_history():
-            if not isinstance(row, dict):
-                continue
-            try:
-                ts = float(row.get("chart_time_unix") or row.get("t") or 0)
-            except (TypeError, ValueError):
-                continue
-            if ts <= 0:
-                continue
-            comp = float(row.get("yield_rate") or 0.0) * 100.0
-            scrap = float(row.get("scrap_rate") or 0.0) * 100.0
-            rows.append((ts, comp, scrap))
-    except Exception:
-        pass
     if len(rows) > _WIP_TREND_MAX_POINTS:
         rows = rows[-_WIP_TREND_MAX_POINTS:]
     return rows
@@ -1023,11 +1056,10 @@ def _rate_trend_apply_axes(fig: go.Figure, *, empty: bool) -> None:
 def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
     hist = _trend_rate_points(kpi)
     fig = go.Figure()
-    _title = "Completion & Scrap Rate Over Time"
     if not hist:
         fig.update_layout(
             **_trend_pair_layout_extras(),
-            title=_trend_chart_title(_title),
+            title=_trend_chart_title(_CHART_TITLE_RATES),
         )
         _rate_trend_apply_axes(fig, empty=True)
         return fig
@@ -1044,12 +1076,12 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
             x=x_dt,
             y=comp_y,
             mode="lines",
-            name="Completion Rate",
+            name="Completion (recent)",
             line=dict(color="#16A34A", width=2),
             customdata=sample_idx,
             hovertemplate=(
                 "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Completion Rate: %{y:.1f}<extra></extra>"
+                "Completion: %{y:.1f}% (recent window)<extra></extra>"
             ),
         )
     )
@@ -1058,45 +1090,46 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
             x=x_dt,
             y=scrap_y,
             mode="lines",
-            name="Scrap Rate",
+            name="Scrap (recent)",
             line=dict(color="#DC2626", width=2),
             customdata=sample_idx,
             hovertemplate=(
                 "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Scrap Rate: %{y:.1f}<extra></extra>"
+                "Scrap: %{y:.1f}% (recent window)<extra></extra>"
             ),
         )
     )
     fig.update_layout(
         **_trend_pair_layout_extras(),
-        title=_trend_chart_title(_title),
+        title=_trend_chart_title(_CHART_TITLE_RATES),
     )
     _rate_trend_apply_axes(fig, empty=False)
     return fig
 
 
 def render_kpi_trends_block(kpi: dict | None) -> None:
-    """Trends：WIP 时序 / Completion & Scrap Rate（两图并排）。"""
+    """Trends：WIP 时序 / Completion & Scrap（两图并排、等高）。"""
     k = dict(kpi or {})
     st.markdown(
         _kpi_section_title_html("Trends", "trends"),
         unsafe_allow_html=True,
     )
-    c1, c2 = st.columns(2, gap="small")
-    with c1:
-        st.plotly_chart(
-            _fig_wip_over_time(k),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_trend_wip_over_time",
-        )
-    with c2:
-        st.plotly_chart(
-            _fig_completion_scrap_over_time(k),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_trend_completion_scrap",
-        )
+    with st.container(key="kpi_trends_wrap"):
+        c1, c2 = st.columns(2, gap="small")
+        with c1:
+            st.plotly_chart(
+                _fig_wip_over_time(k),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_trend_wip_over_time",
+            )
+        with c2:
+            st.plotly_chart(
+                _fig_completion_scrap_over_time(k),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_trend_completion_scrap",
+            )
     
 
 

@@ -707,7 +707,7 @@ div[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlockBorderWrapp
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
     margin-bottom: 14px !important;
 }
-div[data-testid="stButton"] > button {
+div[data-testid="stMainBlockContainer"] div[data-testid="stButton"] > button {
     height: 38px !important;
     font-size: 14px !important;
     font-weight: 700 !important;
@@ -717,11 +717,16 @@ div[data-testid="stButton"] > button {
     width: 100% !important;
     white-space: nowrap !important;
     border: 1px solid #dee2e6 !important;
+    border-bottom: 1px solid #dee2e6 !important;
     background: #f8f9fa !important;
     color: #1f2937 !important;
-    transition: all .15s !important;
+    box-shadow: none !important;
+    transition: background .15s ease, border-color .15s ease, color .15s ease !important;
 }
-div[data-testid="stButton"] > button:hover { background: #e9ecef !important; }
+div[data-testid="stMainBlockContainer"] div[data-testid="stButton"] > button:hover:not(:disabled) {
+    background: #e9ecef !important;
+    box-shadow: none !important;
+}
 .cp-title-wrap {
     margin-bottom:20px;
     display:flex;
@@ -735,34 +740,62 @@ div[data-testid="stButton"] > button:hover { background: #e9ecef !important; }
     letter-spacing:-.3px;
 }
 .cp-title-sub { font-size:17px; color:#adb5bd; }
-div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button,
-div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button {
+div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button {
     background: #ecfdf5 !important;
-    border-color: #bbf7d0 !important;
+    border: 1px solid #bbf7d0 !important;
+    border-bottom: 1px solid #bbf7d0 !important;
     color: #166534 !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button {
     background: #16a34a !important;
-    border-color: #16a34a !important;
+    border: 1px solid #16a34a !important;
+    border-bottom: 1px solid #16a34a !important;
     color: #ffffff !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_btn_stop button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button {
     background: #f8fafc !important;
-    border-color: #cbd5e1 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
     color: #172033 !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_shutdown button {
     background: #fff1f2 !important;
-    border-color: #fecdd3 !important;
+    border: 1px solid #fecdd3 !important;
+    border-bottom: 1px solid #fecdd3 !important;
     color: #b91c1c !important;
     font-weight: 750 !important;
+    box-shadow: none !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_ul_code button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    color: #172033 !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button,
 div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button {
     background: #e7f5ff !important;
-    border-color: #1971c2 !important;
+    border: 1px solid #1971c2 !important;
+    border-bottom: 1px solid #1971c2 !important;
     color: #1864ab !important;
+    box-shadow: none !important;
+}
+div[data-testid="stMainBlockContainer"] div.st-key-home_start_progs button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_btn_start button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_btn_stop button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_stop_progs button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_shutdown button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_ul_code button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_ul_cfg button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button:hover:not(:disabled) {
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_view_logs button {
     background: transparent !important;
@@ -833,8 +866,9 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button {
     font-weight: 700 !important;
     background: #eef2f7 !important;
     border: 1px solid #c9d2df !important;
+    border-bottom: 1px solid #c9d2df !important;
     color: #1f2937 !important;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+    box-shadow: none !important;
     border-radius: 10px !important;
     position: static !important;
     z-index: auto !important;
@@ -852,9 +886,10 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button p {
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_kpi button:hover:not(:disabled),
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button:hover:not(:disabled) {
     background: #f0f4f8 !important;
-    border-color: #c8d0da !important;
+    border: 1px solid #c8d0da !important;
+    border-bottom: 1px solid #c8d0da !important;
     color: #1f2937 !important;
-    box-shadow: 0 3px 9px rgba(15, 23, 42, 0.12) !important;
+    box-shadow: none !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_kpi button:disabled,
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button:disabled {
@@ -1275,6 +1310,8 @@ def render() -> None:
 
         if _bg_busy:
             st.caption("Background operation in progress — controls paused until it finishes.")
+
+        if is_local or _bg_busy:
             st.markdown(
                 """
 <style>
@@ -1455,7 +1492,24 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
     with st.container(border=True):
         section_title("History", "#e67700", accent="#e67700")
         _hist_disabled = lock_all or is_live
-        ui_history_panel.render_history_panel(key_prefix="home_hist", disabled=_hist_disabled)
+        if _hist_disabled:
+            st.markdown(
+                """
+<style>
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_ops_block {
+  pointer-events: none !important;
+  opacity: 0.48 !important;
+  filter: grayscale(0.15);
+  user-select: none;
+}
+</style>
+""".replace("motion[", "div["),
+                unsafe_allow_html=True,
+            )
+        with st.container(key="home_hist_ops_block"):
+            ui_history_panel.render_history_panel(
+                key_prefix="home_hist", disabled=_hist_disabled
+            )
 
     # Navigate
     with st.container(border=True):

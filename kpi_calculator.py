@@ -5,9 +5,10 @@
 #   so WIP is not 2× physical part count. corner2 RETURN/TRANSFER do not change WIP.
 #   Debug: ``KPI_WIP_DEBUG=1`` prints WIP steps for corner2 / splitter5.
 # Stage: entry on LOAD at anchor stations; exits per splitter TRANSFER rules and station TRANSFERs.
-#   **One stage per part at a time**: new anchor LOAD in another stage forces exit of the previous,
-#   so the sum of stage ``wip_instantaneous`` is bounded by the number of parts actually in a stage
-#   (no double occupancy). Stage4: splitter3/4 one exit per ``station41`` LOAD per part.
+#   **One stage per open lap at a time**: sum of stage ``wip_instantaneous`` equals system WIP.
+#   Parts between formal exit and next anchor LOAD sit in ``_part_transit_stage`` (still counted).
+#   corner2 START assigns transit stage 1 until first anchor LOAD. Stage4: splitter3/4 one exit per
+#   ``station41`` LOAD per part. Looping substations (station22 / station51 / station52) re-enter same stage.
 # Station: BUSY / FAIL / BLOCKED / IDLE state machine; utilization = P_busy + P_fail.
 #
 # Part id: part_id, partId, entity_id, entityId — see _extract_part_id.
@@ -28,8 +29,11 @@ def _kpi_wip_debug_enabled() -> bool:
 STAGE_ENTRY: dict[str, int] = {
     "station11": 1,
     "station21": 2,
+    "station22": 2,
     "station31": 3,
     "station41": 4,
+    "station51": 4,
+    "station52": 4,
     "station61": 5,
     "station71": 6,
 }
@@ -91,6 +95,40 @@ def _wip_average_confirmed(
     last_t, last_w = history[-1]
     total += float(last_w) * max(0.0, end_ts - last_t)
     return total / observation_time
+
+
+# Trend chart: rolling yield among last N departures (FINISH/SCRAP), not lifetime cumulative.
+TREND_ROLLING_DEPARTURES = 20
+
+
+def _rolling_departure_rates(
+    rate_history: list[tuple[float, int, int]],
+    *,
+    window: int = TREND_ROLLING_DEPARTURES,
+) -> list[tuple[float, float, float]]:
+    """(ts, completion_pct, scrap_pct) over the last ``window`` departures ending at each point."""
+    if not rate_history or window <= 0:
+        return []
+    out: list[tuple[float, float, float]] = []
+    for i in range(len(rate_history)):
+        ts, nc, ns = rate_history[i]
+        j = i
+        dep_in_window = 0
+        while j > 0 and dep_in_window < window:
+            j -= 1
+            dep_in_window += (rate_history[j + 1][1] - rate_history[j][1]) + (
+                rate_history[j + 1][2] - rate_history[j][2]
+            )
+        c0, s0 = rate_history[j][1], rate_history[j][2]
+        d_comp = int(nc) - int(c0)
+        d_scrap = int(ns) - int(s0)
+        departed = d_comp + d_scrap
+        if departed <= 0:
+            continue
+        comp_pct = round(100.0 * d_comp / departed, 2)
+        scrap_pct = round(100.0 * d_scrap / departed, 2)
+        out.append((float(ts), comp_pct, scrap_pct))
+    return out
 
 
 class KpiCalculator:
@@ -155,6 +193,8 @@ class KpiCalculator:
         self._s4_pending_exits: dict[str, int] = {}
         # part_id -> stage 1..6 they are in (in-model); at most one stage per part
         self._part_current_stage: dict[str, int] = {}
+        # open lap, exited anchor but not yet at next anchor (or pre-first-anchor after START)
+        self._part_transit_stage: dict[str, int] = {}
 
         # --- Station (BUSY / FAIL / BLOCKED / IDLE) ---
         self._stn_state: dict[str, dict[str, Any]] = {}
@@ -201,15 +241,42 @@ class KpiCalculator:
     def _append_stage_wip(self, stage: int, ts: float) -> None:
         self.stage_wip_hist[stage].append((ts, self.stage_wip[stage]))
 
+    def _clear_part_stage_state(self, part_id: str) -> None:
+        self._part_current_stage.pop(part_id, None)
+        self._part_transit_stage.pop(part_id, None)
+        self._s4_pending_exits.pop(part_id, None)
+        for key in [k for k in self.stage_entry_time if k[0] == part_id]:
+            del self.stage_entry_time[key]
+
+    def _sync_stage_wip_at(self, ts: float) -> None:
+        """Derive stage WIP from open laps so sum(stage) == system WIP."""
+        counts = {s: 0 for s in range(1, 7)}
+        for pid in self._open_lap:
+            cur = self._part_current_stage.get(pid)
+            if cur is not None:
+                counts[cur] += 1
+            elif pid in self._part_transit_stage:
+                counts[self._part_transit_stage[pid]] += 1
+            else:
+                counts[1] += 1
+        for stage in range(1, 7):
+            if self.stage_wip[stage] != counts[stage]:
+                self.stage_wip[stage] = counts[stage]
+                self._append_stage_wip(stage, ts)
+
+    def _assign_transit_after_exit(self, stage: int, part_id: str) -> None:
+        if part_id not in self._open_lap:
+            return
+        if stage in (2, 4, 6):
+            self._part_transit_stage[part_id] = stage
+        else:
+            self._part_transit_stage[part_id] = min(6, stage + 1)
+
     def _stage_force_leave_without_departure(self, stage: int, part_id: str, ts: float) -> None:
         """Keep stage WIP sane when a part appears in another stage without a formal exit event.
 
         This is a reconciliation path only: it must NOT increment departures/throughput or flow-time samples.
         """
-        if self.stage_wip[stage] <= 0:
-            return
-        self.stage_wip[stage] = max(0, self.stage_wip[stage] - 1)
-        self._append_stage_wip(stage, ts)
         self.stage_forced_exits[stage] += 1
         key = (part_id, stage)
         if key in self.stage_entry_time:
@@ -233,9 +300,8 @@ class KpiCalculator:
             self._stage_force_leave_without_departure(cur, part_id, ts)
         if part_id in self._part_current_stage and self._part_current_stage[part_id] != stage:
             del self._part_current_stage[part_id]
+        self._part_transit_stage.pop(part_id, None)
         self._part_current_stage[part_id] = stage
-        self.stage_wip[stage] += 1
-        self._append_stage_wip(stage, ts)
         self.stage_entry_time[(part_id, stage)] = ts
         if stage == 4 and part_id:
             self._s4_pending_exits[part_id] = self._s4_pending_exits.get(part_id, 0) + 1
@@ -246,23 +312,20 @@ class KpiCalculator:
             return
         if self._s4_pending_exits.get(part_id, 0) <= 0:
             return
-        if self.stage_wip[4] <= 0:
-            return
         self._s4_pending_exits[part_id] -= 1
         self._stage_exit(4, part_id, ts)
 
     def _stage_exit(self, stage: int, part_id: str, ts: float) -> None:
-        if self.stage_wip[stage] <= 0:
+        if not part_id:
             return
-        self.stage_wip[stage] = max(0, self.stage_wip[stage] - 1)
-        self._append_stage_wip(stage, ts)
-        self.stage_departures[stage] += 1
         key = (part_id, stage)
         if key in self.stage_entry_time:
             self.stage_flow_times[stage].append(ts - self.stage_entry_time[key])
             del self.stage_entry_time[key]
+            self.stage_departures[stage] += 1
         if part_id in self._part_current_stage and self._part_current_stage[part_id] == stage:
             del self._part_current_stage[part_id]
+        self._assign_transit_after_exit(stage, part_id)
 
     def _stn_ensure(self, sid: str, ts: float) -> None:
         if sid not in self._stn_state:
@@ -334,6 +397,7 @@ class KpiCalculator:
                     )
             else:
                 self._open_lap.add(part_id)
+                self._part_transit_stage[part_id] = 1
                 w0 = self.sys_wip
                 self.sys_wip += 1
                 if _kpi_wip_debug_enabled():
@@ -343,7 +407,6 @@ class KpiCalculator:
                         flush=True,
                     )
                 self._append_sys_wip(ts)
-                self._append_rate_point(ts)
                 self.sys_start_time[part_id] = ts
 
         if comp == "splitter5" and act_u in self._finish_upper and part_id:
@@ -351,6 +414,7 @@ class KpiCalculator:
             w_before = self.sys_wip
             if had:
                 self._open_lap.discard(part_id)
+                self._clear_part_stage_state(part_id)
                 self.sys_wip = max(0, self.sys_wip - 1)
                 self._append_sys_wip(ts)
                 self.num_completions += 1
@@ -370,6 +434,7 @@ class KpiCalculator:
             w_before = self.sys_wip
             if had:
                 self._open_lap.discard(part_id)
+                self._clear_part_stage_state(part_id)
                 self.sys_wip = max(0, self.sys_wip - 1)
                 self._append_sys_wip(ts)
                 self.num_scraps += 1
@@ -447,6 +512,8 @@ class KpiCalculator:
                 self._stn_ensure(comp, ts)
                 self._stn_state[comp]["part"] = part_id
 
+        self._sync_stage_wip_at(ts)
+
     def get_snapshot(self) -> dict[str, Any]:
         if self.observation_time_mode == "replay":
             end_ts = float(self.last_event_ts) if self.last_event_ts is not None else datetime.datetime.now().timestamp()
@@ -457,6 +524,9 @@ class KpiCalculator:
 
         start_ts = self.observation_start_ts
         obs_time = max(0.001, (end_ts - start_ts) if start_ts is not None else 0.001)
+
+        if self.last_event_ts is not None:
+            self._sync_stage_wip_at(float(self.last_event_ts))
 
         avg_sys_wip = round(_wip_average_confirmed(self.sys_wip_history, obs_time, end_ts), 3)
 
@@ -568,16 +638,12 @@ class KpiCalculator:
         trend_sys_wip_history: list[list[float | int]] = [
             [float(ts), int(w)] for ts, w in _wip_trend
         ]
-        trend_rate_history: list[list[float]] = []
-        for ts, n_comp, n_scrap in self.sys_rate_history[-200:]:
-            departed = int(n_comp) + int(n_scrap)
-            if departed > 0:
-                comp_pct = round(100.0 * int(n_comp) / departed, 2)
-                scrap_pct = round(100.0 * int(n_scrap) / departed, 2)
-            else:
-                comp_pct = 0.0
-                scrap_pct = 0.0
-            trend_rate_history.append([float(ts), comp_pct, scrap_pct])
+        trend_rate_history: list[list[float]] = [
+            [ts, comp_pct, scrap_pct]
+            for ts, comp_pct, scrap_pct in _rolling_departure_rates(
+                self.sys_rate_history[-200:]
+            )
+        ]
         _fct_cap = self.finished_cycle_times[-1000:]
         trend_finished_cycle_times: list[float] = [round(float(x), 4) for x in _fct_cap]
 

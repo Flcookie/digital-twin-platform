@@ -56,15 +56,18 @@ def _history_panel_css(kp: str) -> str:
         padding: 0 14px !important;
         border-radius: 8px !important;
         box-sizing: border-box !important;
+        box-shadow: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button {{
         background: #e7f5ff !important;
         border: 1px solid #1971c2 !important;
+        border-bottom: 1px solid #1971c2 !important;
         color: #1864ab !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button {{
         background: #e3f2fd !important;
         border: 1px solid #1565c0 !important;
+        border-bottom: 1px solid #1565c0 !important;
         color: #1565c0 !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button,
@@ -76,11 +79,12 @@ def _history_panel_css(kp: str) -> str:
         font-weight: 650 !important;
         background: #f8f9fa !important;
         border: 1px solid #dee2e6 !important;
+        border-bottom: 1px solid #dee2e6 !important;
         color: #374151 !important;
     }}
-    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button:hover {{
-        border-color: #0d47a1 !important;
-        color: #0d47a1 !important;
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button:hover:not(:disabled),
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button:hover:not(:disabled) {{
+        box-shadow: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-testid="stSelectbox"] {{
         min-height: 32px !important;
@@ -182,11 +186,15 @@ def _history_panel_css(kp: str) -> str:
         border-radius: 7px !important;
         background: #f8fafc !important;
         border: 1px solid #cbd5e1 !important;
+        border-bottom: 1px solid #cbd5e1 !important;
         color: #334155 !important;
+        box-shadow: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_up} [data-testid="stFileUploaderDropzone"] button:hover {{
-        border-color: #94a3b8 !important;
+        border: 1px solid #94a3b8 !important;
+        border-bottom: 1px solid #94a3b8 !important;
         background: #f1f5f9 !important;
+        box-shadow: none !important;
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import_block} {{
         margin: 0 0 0.1rem 0 !important;
@@ -224,11 +232,26 @@ def _history_panel_css(kp: str) -> str:
     )
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def _cached_sessions_enriched(limit: int) -> list[dict]:
+    return neo4j_backend.list_sessions_enriched(limit)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_export_events_csv(session_id: str) -> bytes:
+    return neo4j_backend.export_session_events_csv(session_id).encode("utf-8")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_export_kpi_csv(session_id: str) -> bytes:
+    return neo4j_backend.export_session_kpi_log_csv(session_id).encode("utf-8")
+
+
 def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) -> None:
     """All widget keys are prefixed to avoid clashes when embedded.
 
     When ``disabled`` is True (e.g. Live data source or no config selected),
-    controls are shown but non-interactive.
+    controls are shown but non-interactive — **no Neo4j round-trips** on refresh.
     """
     kp = key_prefix
     d = disabled
@@ -241,36 +264,46 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
 
     st.markdown(_history_panel_css(kp), unsafe_allow_html=True)
 
-    status = neo4j_backend.neo4j_status()
-    if not status.get("connected"):
-        st.error("Database not connected: **{}**".format(status.get("error", "unknown")))
-        return
-
     _sess_key = "{}_history_session_id".format(kp)
-    _pend = st.session_state.pop("{}_pending_select_session".format(kp), None)
-    sessions = neo4j_backend.list_sessions_enriched(120)
-    # Hide empty+open artifacts (typically aborted/placeholder sessions) from History selector.
-    sessions = [
-        s
-        for s in sessions
-        if not (
-            int(s.get("event_count") or 0) <= 0
-            and str(s.get("status_badge") or "").strip().lower() == "open"
-        )
-    ]
-    sel_ids = [s["id"] for s in sessions]
-    id_to_label = {s["id"]: s.get("label") or s["id"] for s in sessions}
+    sel_ids: list[str] = []
+    id_to_label: dict[str, str] = {}
 
-    if _pend and isinstance(_pend, str) and _pend in sel_ids:
-        st.session_state[_sess_key] = _pend
-    elif not sel_ids:
+    if d:
         st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
     else:
-        _cur = st.session_state.get(_sess_key)
-        if isinstance(_cur, str) and (_cur in sel_ids or _cur == _HIST_SESSION_PLACEHOLDER):
-            pass
-        else:
+        status = neo4j_backend.neo4j_status()
+        if not status.get("connected"):
+            st.error(
+                "Database not connected: **{}**".format(status.get("error", "unknown"))
+            )
             st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
+        else:
+            _pend = st.session_state.pop("{}_pending_select_session".format(kp), None)
+            sessions = _cached_sessions_enriched(120)
+            # Hide empty+open artifacts (typically aborted/placeholder sessions) from History selector.
+            sessions = [
+                s
+                for s in sessions
+                if not (
+                    int(s.get("event_count") or 0) <= 0
+                    and str(s.get("status_badge") or "").strip().lower() == "open"
+                )
+            ]
+            sel_ids = [s["id"] for s in sessions]
+            id_to_label = {s["id"]: s.get("label") or s["id"] for s in sessions}
+
+            if _pend and isinstance(_pend, str) and _pend in sel_ids:
+                st.session_state[_sess_key] = _pend
+            elif not sel_ids:
+                st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
+            else:
+                _cur = st.session_state.get(_sess_key)
+                if isinstance(_cur, str) and (
+                    _cur in sel_ids or _cur == _HIST_SESSION_PLACEHOLDER
+                ):
+                    pass
+                else:
+                    st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
 
     _rp = st.session_state.get("replay_proc")
     if _rp is not None and _rp.poll() is not None:
@@ -318,16 +351,16 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
     if not d:
         st.session_state["dt_resolved_session"] = chosen_id
 
-    _exp_disabled = d or not chosen_id
+    _exp_disabled = not chosen_id
     ev_csv = b""
     kpi_csv = b""
-    if chosen_id and not d:
-        ev_csv = neo4j_backend.export_session_events_csv(chosen_id).encode("utf-8")
-        kpi_csv = neo4j_backend.export_session_kpi_log_csv(chosen_id).encode("utf-8")
+    if chosen_id:
+        ev_csv = _cached_export_events_csv(chosen_id)
+        kpi_csv = _cached_export_kpi_csv(chosen_id)
 
     _can_start = not d and bool(chosen_id) and not _rec_on and not _replay_live
 
-    if not sel_ids:
+    if not d and not sel_ids:
         st.caption("No sessions yet — import a CSV in the section below.")
 
     with st.container(key="{}_hist_toolbar".format(kp)):

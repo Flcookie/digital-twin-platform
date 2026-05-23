@@ -310,15 +310,69 @@ def test_stage2_splitter1_forward_transfer_exits():
     assert kpi.get_snapshot()["stages"]["stage2"]["num_departures"] == 1
 
 
+def test_stage_wip_sum_equals_system_wip():
+    """Each open lap is attributed to exactly one stage (active, transit, or pre-M1)."""
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:01.000", "component_id": "corner2", "part_id": "p2", "activity": "START"}
+    )
+    snap = kpi.get_snapshot()
+    stage_sum = sum(snap["stages"][f"stage{i}"]["wip_instantaneous"] for i in range(1, 7))
+    assert snap["wip_instantaneous"] == 2
+    assert stage_sum == 2
+    assert snap["stages"]["stage1"]["wip_instantaneous"] == 2
+
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:05.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:15.000", "component_id": "station11", "part_id": "p1", "activity": "TRANSFER"}
+    )
+    snap = kpi.get_snapshot()
+    stage_sum = sum(snap["stages"][f"stage{i}"]["wip_instantaneous"] for i in range(1, 7))
+    assert snap["wip_instantaneous"] == 2
+    assert stage_sum == 2
+    assert snap["stages"]["stage1"]["wip_instantaneous"] == 1
+    assert snap["stages"]["stage2"]["wip_instantaneous"] == 1
+
+
+def test_station22_load_reenters_looping_stage2():
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:01.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:02.000", "component_id": "splitter1", "part_id": "p1", "activity": "FORWARD"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:03.000", "component_id": "splitter1", "part_id": "p1", "activity": "TRANSFER"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:04.000", "component_id": "station22", "part_id": "p1", "activity": "LOAD"}
+    )
+    snap = kpi.get_snapshot()
+    assert snap["stages"]["stage2"]["wip_instantaneous"] == 1
+    assert snap["wip_instantaneous"] == 1
+
+
 def test_cross_stage_load_reconcile_does_not_create_departure():
     """If a part appears in next stage without formal previous exit, only WIP is reconciled."""
     kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
     kpi.on_event(
-        {"time": "2026-03-12T18:00:00.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
+        {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:01.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
     )
     # Missing station11 TRANSFER, direct next-stage LOAD.
     kpi.on_event(
-        {"time": "2026-03-12T18:00:01.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
+        {"time": "2026-03-12T18:00:02.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
     )
     s = kpi.get_snapshot()["stages"]
     # Stage1 reconciled down to keep one-stage occupancy, but no formal departure counted.
@@ -397,6 +451,53 @@ def test_looping_stage_repeated_load_creates_new_pass_sample():
     assert s4["wip_instantaneous"] == 0
 
 
+def test_trend_rate_history_uses_rolling_window_not_lifetime_cumulative():
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    base = "2026-03-12T18:00:00.000"
+    # Ten good finishes, then five scraps in a row — rolling window should dip.
+    for i in range(10):
+        kpi.on_event(
+            {
+                "time": base,
+                "component_id": "corner2",
+                "part_id": f"p{i}",
+                "activity": "START",
+            }
+        )
+        kpi.on_event(
+            {
+                "time": f"2026-03-12T18:00:{10 + i:02d}.000",
+                "component_id": "splitter5",
+                "part_id": f"p{i}",
+                "activity": "FINISH",
+            }
+        )
+    for i in range(10, 15):
+        kpi.on_event(
+            {
+                "time": base,
+                "component_id": "corner2",
+                "part_id": f"p{i}",
+                "activity": "START",
+            }
+        )
+        kpi.on_event(
+            {
+                "time": f"2026-03-12T18:01:{i:02d}.000",
+                "component_id": "splitter5",
+                "part_id": f"p{i}",
+                "activity": "SCRAP",
+            }
+        )
+    trend = kpi.get_snapshot()["trend_rate_history"]
+    assert trend
+    last_comp, last_scrap = trend[-1][1], trend[-1][2]
+    assert last_scrap > 15.0
+    assert last_comp < 90.0
+    snap = kpi.get_snapshot()
+    assert snap["yield_rate"] > 0.6
+
+
 def test_avg_wip_includes_tail_duration():
     kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
     kpi.on_event(
@@ -413,11 +514,14 @@ def test_avg_wip_includes_tail_duration():
 def test_forced_exit_is_counted_but_not_departure():
     kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
     kpi.on_event(
-        {"time": "2026-03-12T18:00:00.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
+        {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:01.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
     )
     # Missing station11 TRANSFER; next stage LOAD triggers reconciliation only.
     kpi.on_event(
-        {"time": "2026-03-12T18:00:01.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
+        {"time": "2026-03-12T18:00:02.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
     )
     st = kpi.get_snapshot()["stages"]
     assert st["stage1"]["num_departures"] == 0
@@ -429,10 +533,13 @@ def test_forced_exit_debug_counter_exposed_when_enabled():
     try:
         kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
         kpi.on_event(
-            {"time": "2026-03-12T18:00:00.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
+            {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
         )
         kpi.on_event(
-            {"time": "2026-03-12T18:00:01.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
+            {"time": "2026-03-12T18:00:01.000", "component_id": "station11", "part_id": "p1", "activity": "LOAD"}
+        )
+        kpi.on_event(
+            {"time": "2026-03-12T18:00:02.000", "component_id": "station21", "part_id": "p1", "activity": "LOAD"}
         )
         dbg = kpi.get_snapshot()["debug"]
         assert dbg["stage_forced_exits"]["stage1"] == 1
@@ -458,6 +565,37 @@ def test_utilization_counts_fail_as_occupied_time():
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 _EVENT_LOG_260312 = os.path.join(_ROOT, "event-logs", "event_log_260312_180229.csv")
+_EVENT_LOG_260509 = os.path.join(_ROOT, "event-logs", "event_log_260509_164517.csv")
+
+
+@pytest.mark.skipif(
+    not os.path.isfile(_EVENT_LOG_260509),
+    reason="sample plant log not in repo",
+)
+def test_plant_log_260509_stage_wip_matches_system():
+    import pandas as pd
+
+    df = pd.read_csv(_EVENT_LOG_260509)
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    mismatches = 0
+    for row in df.to_dict("records"):
+        kpi.on_event(
+            {
+                "time": row["time"],
+                "component_id": row["component_id"],
+                "part_id": row["part_id"],
+                "activity": row["activity"],
+            }
+        )
+        snap = kpi.get_snapshot()
+        sys_w = snap["wip_instantaneous"]
+        stage_sum = sum(
+            snap["stages"][f"stage{i}"]["wip_instantaneous"] for i in range(1, 7)
+        )
+        if sys_w != stage_sum:
+            mismatches += 1
+    assert mismatches == 0, "stage WIP sum must equal system WIP on every event"
+    assert snap["wip_instantaneous"] > 0
 
 
 @pytest.mark.skipif(
@@ -502,6 +640,8 @@ if __name__ == "__main__":
     test_fail_on_splitter_not_counted()
     test_stage1_entry_exit_flow_time()
     test_stage2_splitter1_forward_transfer_exits()
+    test_stage_wip_sum_equals_system_wip()
+    test_station22_load_reenters_looping_stage2()
     test_cross_stage_load_reconcile_does_not_create_departure()
     test_stage4_splitter3_and_4_dedup_one_departure_per_load()
     test_looping_stage_repeated_load_creates_new_pass_sample()

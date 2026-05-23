@@ -29,6 +29,8 @@ _TWIN_FLOW_CLR_STEP_REWORK = "#e67e22"
 _TWIN_FLOW_CLR_STEP_EMPTY = "#e8e8e8"
 _TWIN_FLOW_CLR_COL_ANOMALY = "#fff0f0"
 _TWIN_FLOW_CLR_COL_SCRAP = "#d1d5db"
+_TWIN_FLOW_CLR_COL_FINISHED = "rgba(26, 107, 60, 0.15)"
+_TWIN_FLOW_CLR_LEGEND_SCRAP = "#4b5563"
 _TWIN_FLOW_CLR_COL_NORMAL = "#ffffff"
 _TWIN_FLOW_Q_TRACE = "dt_pt_trace"
 _DT_TRACE_ROWS_SESSION_KEY = "_dt_trace_rows_pt"
@@ -162,6 +164,38 @@ def _update_part_trace_row_flashes(rows_pt: list[dict]) -> None:
     st.session_state._pt_row_flash_until = flashes
 
 
+def _twin_flow_legend_html() -> str:
+    """图例顺序：Processed → Rework → Finished → Scrapped → Not Done。"""
+    d = _TWIN_FLOW_CLR_STEP_DONE
+    r = _TWIN_FLOW_CLR_STEP_REWORK
+    e = _TWIN_FLOW_CLR_STEP_EMPTY
+    fin = _TWIN_FLOW_CLR_COL_FINISHED
+    scrap = _TWIN_FLOW_CLR_LEGEND_SCRAP
+    return (
+        "<div style='display:flex;gap:16px;margin-bottom:10px;font-size:0.95rem;"
+        "align-items:center;flex-wrap:wrap;color:#64748b;'>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='width:14px;height:14px;border-radius:3px;background:{d};"
+        "display:inline-block;'></span>Processed</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='position:relative;width:14px;height:14px;border-radius:3px;"
+        f"background:{r};display:inline-flex;align-items:center;justify-content:center;"
+        "color:white;font-size:11px;line-height:1;'>↺</span>Rework</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='width:14px;height:14px;border-radius:3px;background:{fin};"
+        f"border:1px solid {d};display:inline-flex;align-items:center;justify-content:center;"
+        "font-size:10px;line-height:1;'>✅</span>Finished</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='width:14px;height:14px;border-radius:3px;background:{scrap};"
+        "display:inline-flex;align-items:center;justify-content:center;color:white;"
+        "font-size:9px;line-height:1;'>🗑️</span>Scrapped</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='width:14px;height:14px;border-radius:3px;background:{e};"
+        "border:1px solid #cbd5e1;display:inline-block;'></span>Not Done</span>"
+        "</div>"
+    )
+
+
 def _twin_flow_row_td_background(rep: dict, conf_style: str, part_id: str = "") -> str:
     _ = conf_style, rep
     flash = _part_trace_row_flash_bg(part_id) if part_id else None
@@ -173,21 +207,7 @@ def _twin_flow_row_td_background(rep: dict, conf_style: str, part_id: str = "") 
 def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
     """Digital Twin：工艺格矩阵 + Complete trace 弹窗。"""
     _update_part_trace_row_flashes(rows_pt)
-    _legend = (
-        "<{tag} style='display:flex;gap:14px;margin-bottom:10px;font-size:0.95rem;"
-        "align-items:center;flex-wrap:wrap;color:#64748b;'>"
-        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
-        "<span style='width:14px;height:14px;border-radius:3px;background:#1a6b3c;"
-        "display:inline-block;'></span>Processed</span>"
-        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
-        "<span style='width:14px;height:14px;border-radius:3px;background:#e67e22;"
-        "display:inline-block;'></span>Rework</span>"
-        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
-        "<span style='width:14px;height:14px;border-radius:3px;background:#e8e8e8;"
-        "border:1px solid #cbd5e1;display:inline-block;'></span>Not done</span>"
-        "</{tag}>"
-    ).format(tag="di" + "v")
-    st.markdown(_legend, unsafe_allow_html=True)
+    st.markdown(_twin_flow_legend_html(), unsafe_allow_html=True)
 
     _cell = (
         "<div style='padding:10px 6px;background:#2c3e50;color:white;font-size:1.14rem;"
