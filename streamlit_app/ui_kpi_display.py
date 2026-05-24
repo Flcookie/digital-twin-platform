@@ -756,15 +756,6 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
         c_wip, c_lead, c_def = _KPI_COLOR_WIP, _KPI_COLOR_LEAD, _KPI_COLOR_DEFAULT
         c_title, c_badge_bg, c_badge_txt = _STAGE_TITLE_COLOR, _STAGE_BADGE_BG, _STAGE_BADGE_TEXT
         c_accent = _STAGE_CARD_ACCENT
-        loop_note = ""
-        if cfg["type"] == "Looping":
-            l5 = _FONT_L5_PX
-            loop_note = (
-                f'<div style="font-size:{l5}px;color:#64748b;margin-top:8px;line-height:1.35;">'
-                "Looping: departures count each re-entry; "
-                "not directly comparable to Non-Looping stages."
-                "</div>"
-            )
         return f"""
 <div style="background:white;border:0.5px solid #e0e0e0;
             border-radius:12px;border-left:3px solid {c_accent};
@@ -798,7 +789,6 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
       <div style="font-size:{l4}px;font-weight:700;color:{c_def};">{dep}</div>
     </div>
   </div>
-  {loop_note}
 </div>
 """
 
