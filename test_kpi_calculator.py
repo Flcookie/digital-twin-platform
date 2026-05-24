@@ -620,6 +620,29 @@ def test_station41_station71_pass_events_are_meaningful():
         assert ptc.event_is_meaningful(ev)
 
 
+def test_splitter2_corner1_splitter5_return_events_are_meaningful():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import part_track_conformance as ptc
+
+    assert ptc.event_is_meaningful(
+        {"component_id": "splitter2", "activity": "FORWARD"}
+    )
+    assert ptc.event_is_meaningful(
+        {"component_id": "splitter2", "activity": "RETURN"}
+    )
+    assert ptc.event_is_meaningful(
+        {"component_id": "corner1", "activity": "TRANSFER"}
+    )
+    assert ptc.event_is_meaningful(
+        {"component_id": "corner1", "activity": "RETURN"}
+    )
+    assert ptc.event_is_meaningful(
+        {"component_id": "splitter5", "activity": "RETURN"}
+    )
+
+
 def test_scrap_on_non_splitter5_does_not_close_lap():
     import sys
 

@@ -96,6 +96,7 @@ LOCATION_MAP: dict[str, str] = {
 }
 
 MEANINGFUL_EVENTS: dict[str, frozenset[str]] = {
+    "corner1": frozenset({"TRANSFER", "RETURN"}),
     "corner2": frozenset({"START"}),
     "station11": frozenset({"LOAD", "PROCESS", "UNLOAD", "FAIL", "BLOCK"}),
     "station21": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
@@ -107,9 +108,10 @@ MEANINGFUL_EVENTS: dict[str, frozenset[str]] = {
     "station61": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
     "station71": frozenset({"LOAD", "PROCESS", "PASS", "UNLOAD", "FAIL", "BLOCK"}),
     "splitter1": frozenset({"FORWARD"}),
+    "splitter2": frozenset({"FORWARD", "RETURN"}),
     "splitter3": frozenset({"FORWARD", "RETURN"}),
     "splitter4": frozenset({"FORWARD", "RETURN"}),
-    "splitter5": frozenset({"CHECKOUT", "FINISH", "SCRAP"}),
+    "splitter5": frozenset({"CHECKOUT", "FINISH", "SCRAP", "RETURN"}),
 }
 
 CELL_SYMBOL: dict[str, str] = {

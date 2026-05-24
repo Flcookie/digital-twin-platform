@@ -558,7 +558,10 @@ def _system_values(kpi: dict) -> dict[str, float | int]:
     wip = int(sysb.get("wip_instantaneous", k.get("current_wip", 0)) or 0)
     awip = float(sysb.get("wip_average", k.get("avg_wip", 0)) or 0)
     cr = float(sysb.get("complete_rate", k.get("throughput", 0)) or 0)
-    sr = float(sysb.get("scrap_rate", k.get("scrap_rate", 0)) or 0)
+    # Backend scrap_rate = scraps/departed (fraction); display uses n_scrap/obs (rate /s).
+    scrap_rate_fraction = float(
+        sysb.get("scrap_rate", k.get("scrap_rate", 0)) or 0
+    )
     ct_fin = float(sysb.get("avg_cycle_time_fin", k.get("avg_flow_time_sec", 0)) or 0)
     ct_all = float(sysb.get("avg_cycle_time_all", k.get("avg_cycle_time_all_sec", 0)) or 0)
     ftc = int(k.get("flow_time_count", 0) or 0)
@@ -573,7 +576,7 @@ def _system_values(kpi: dict) -> dict[str, float | int]:
         "wip": wip,
         "awip": awip,
         "cr": cr,
-        "sr": sr,
+        "scrap_rate_fraction": scrap_rate_fraction,
         "yield_rate": yield_rate,
         "ct_fin": ct_fin,
         "ct_all": ct_all,
@@ -753,6 +756,15 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
         c_wip, c_lead, c_def = _KPI_COLOR_WIP, _KPI_COLOR_LEAD, _KPI_COLOR_DEFAULT
         c_title, c_badge_bg, c_badge_txt = _STAGE_TITLE_COLOR, _STAGE_BADGE_BG, _STAGE_BADGE_TEXT
         c_accent = _STAGE_CARD_ACCENT
+        loop_note = ""
+        if cfg["type"] == "Looping":
+            l5 = _FONT_L5_PX
+            loop_note = (
+                f'<div style="font-size:{l5}px;color:#64748b;margin-top:8px;line-height:1.35;">'
+                "Looping: departures count each re-entry; "
+                "not directly comparable to Non-Looping stages."
+                "</div>"
+            )
         return f"""
 <div style="background:white;border:0.5px solid #e0e0e0;
             border-radius:12px;border-left:3px solid {c_accent};
@@ -786,6 +798,7 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
       <div style="font-size:{l4}px;font-weight:700;color:{c_def};">{dep}</div>
     </div>
   </div>
+  {loop_note}
 </div>
 """
 
