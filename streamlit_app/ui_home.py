@@ -1186,21 +1186,27 @@ def render() -> None:
     with st.container(border=True):
         _render_data_source_configuration()
 
-    # Live
-    prog_raw = process_control.get_programs_status()
-    sys_raw = process_control.get_system_status()
-    prog_label = {
-        "activated": "Activated",
-        "partial": "Partial",
-        "deactivated": "Deactivated",
-    }.get(prog_raw, "Unknown")
-    prog_color = {
-        "activated": "#2f9e44",
-        "partial": "#e67700",
-        "deactivated": "#64748b",
-    }.get(prog_raw, "#64748b")
-    sys_color = "#22c55e" if sys_raw == "start" else "#64748b"
-    sys_label = "Running" if sys_raw == "start" else "Stopped"
+    # Live — Programs/System 状态仅在 Live Monitoring 数据源下有意义
+    if is_live:
+        prog_raw = process_control.get_programs_status()
+        sys_raw = process_control.get_system_status()
+        prog_label = {
+            "activated": "Activated",
+            "partial": "Partial",
+            "deactivated": "Deactivated",
+        }.get(prog_raw, "Unknown")
+        prog_color = {
+            "activated": "#2f9e44",
+            "partial": "#e67700",
+            "deactivated": "#64748b",
+        }.get(prog_raw, "#64748b")
+        sys_color = "#22c55e" if sys_raw == "start" else "#64748b"
+        sys_label = "Running" if sys_raw == "start" else "Stopped"
+    else:
+        prog_label = "—"
+        sys_label = "—"
+        prog_color = "#cbd5e1"
+        sys_color = "#cbd5e1"
 
     def _dot(c: str) -> str:
         return (
@@ -1231,17 +1237,19 @@ def render() -> None:
         if _bg_busy:
             st.caption("Background operation in progress — controls paused until it finishes.")
 
-        if is_local or _bg_busy:
+        if lock_all or is_local or _bg_busy:
             st.markdown(
                 """
 <style>
+div[data-testid="stMainBlockContainer"] div.st-key-home_live_head_row,
 div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block {
   pointer-events: none !important;
   opacity: 0.48 !important;
-  filter: grayscale(0.2);
+  filter: grayscale(0.15);
   user-select: none;
 }
-div[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
+div[data-testid="stMainBlockContainer"] div.st-key-home_live_head_row button,
+motion[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button {
   cursor: not-allowed !important;
 }
 </style>

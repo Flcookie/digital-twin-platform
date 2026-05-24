@@ -308,7 +308,7 @@ def _build_static_traces() -> list:
             textposition=ms_pos,
             textfont=dict(size=15, color="#334155"),
             showlegend=False,
-            hovertemplate="<b>%{text}</b><extra></extra>",
+            hoverinfo="skip",
         )
     )
 
@@ -324,7 +324,7 @@ def _build_static_traces() -> list:
             textposition="bottom center",
             textfont=dict(size=15, color="#334155"),
             showlegend=False,
-            hovertemplate="<b>%{text}</b><extra></extra>",
+            hoverinfo="skip",
         )
     )
 
@@ -436,7 +436,7 @@ def build_factory_floor_figure(
                 textposition="top center",
                 textfont=dict(size=18, color="#1e293b"),
                 showlegend=False,
-                hovertemplate=f"<b>{m['name']}</b><extra></extra>",
+                hoverinfo="skip",
             )
         )
 

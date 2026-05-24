@@ -597,6 +597,16 @@ def test_scrap_lap_preserves_done_slots_in_display_grid():
     assert all(dg.get(s) != "SCRAP" for s in ptc.SLOTS)
     lab, style = ptc.conformance_column_display(rep)
     assert style == "scrap"
+    ic, body, _ = ptc._trace_conformance_span(
+        rep["laps"][0]["final_grid"],
+        rep["laps"][0].get("lap_failed_stations") or set(),
+        lap_outcome="SCRAP",
+    )
+    assert body == "Scrap"
+    assert ic == "\u2717"
+    html = ptc.format_complete_trace_meaningful_html(rep)
+    assert "Scrap" in html
+    assert "Normal" not in html
 
 
 def test_station41_station71_pass_events_are_meaningful():

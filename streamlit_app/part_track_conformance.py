@@ -154,8 +154,12 @@ def _ev_ts(ev: dict | None) -> float:
 def get_lap_conformance(
     grid: dict[str, str],
     lap_failed_stations: set[str] | frozenset[str] | None = None,
+    *,
+    lap_outcome: str | None = None,
 ) -> dict[str, str]:
     """闭圈判定：SCRAP → REWORK（本圈曾 FAIL 的工位快照）→ SKIPPED → NORMAL。"""
+    if str(lap_outcome or "").strip().upper() == "SCRAP":
+        return {"status": "SCRAP", "detail": ""}
     fset: set[str] = set(lap_failed_stations or ())
     is_scrap = any(grid.get(s) == "SCRAP" for s in SLOTS)
     if is_scrap:
@@ -174,8 +178,12 @@ def get_lap_conformance(
 def _lap_conformance_label_color_status(
     grid: dict[str, str],
     lap_failed_stations: set[str] | frozenset[str] | None = None,
+    *,
+    lap_outcome: str | None = None,
 ) -> tuple[str, str, str]:
-    c = get_lap_conformance(grid, lap_failed_stations)
+    c = get_lap_conformance(
+        grid, lap_failed_stations, lap_outcome=lap_outcome
+    )
     st = c["status"]
     d = c.get("detail") or ""
     if st == "NORMAL":
@@ -205,11 +213,11 @@ def conformance_column_display(rep: dict[str, Any]) -> tuple[str, str]:
     if rep.get("lap_open"):
         return "\u2014 In progress", "in_progress"
     laps = rep.get("laps") or []
-    if laps and str(laps[-1].get("outcome") or "") == "SCRAP":
-        return "\u2717 Scrap", "scrap"
+    last_outcome = str(laps[-1].get("outcome") or "") if laps else ""
     lab, _, st = _lap_conformance_label_color_status(
         rep["display_grid"],
         rep.get("last_closed_lap_failed_stations") or set(),
+        lap_outcome=last_outcome,
     )
     key = {
         "NORMAL": "normal",
@@ -496,10 +504,14 @@ def _lap_outcome_badge(oc_raw: str) -> tuple[str, str, str]:
     return oc_raw or "?", "#21262d", "#e6edf3"
 
 
-def _trace_conformance_span(fg: dict[str, str], lf: Any) -> tuple[str, str, str]:
+def _trace_conformance_span(
+    fg: dict[str, str], lf: Any, *, lap_outcome: str | None = None
+) -> tuple[str, str, str]:
     """(图标, 主文案不带 emoji 前缀, CSS color)"""
     lf_set: set[str] = set(lf or [])
-    lab, _col, status = _lap_conformance_label_color_status(fg, lf_set)
+    lab, _col, status = _lap_conformance_label_color_status(
+        fg, lf_set, lap_outcome=lap_outcome
+    )
     icon = {"NORMAL": "\u2713", "REWORK": "\u21ba", "SKIPPED": "\u26a0", "SCRAP": "\u2717"}.get(
         status,
         "\u2014",
@@ -523,7 +535,7 @@ def _closed_lap_header_html(
     lap_index: int, outcome: str, duration_sec: float, fg: dict[str, str], lf: Any
 ) -> str:
     res_txt, res_bg, res_fg = _lap_outcome_badge(outcome)
-    ic, cf_body, cf_col = _trace_conformance_span(fg, lf)
+    ic, cf_body, cf_col = _trace_conformance_span(fg, lf, lap_outcome=outcome)
     esc_res = html_module.escape(res_txt)
     dur = "{:.1f}s".format(float(duration_sec))
     lap_n = lap_index

@@ -510,8 +510,21 @@ def get_programs_status() -> str:
 
 
 def get_system_status() -> str:
-    """``start`` if main_service PID is valid, else ``stop``."""
-    return "start" if is_main_service_running() else "stop"
+    """``start`` only after **Start System** (recording + physical MQTT START).
+
+    ``main_service`` running alone (e.g. manual terminal / replay backend) is **not**
+    treated as the physical line running — matches Live dashboard semantics.
+    """
+    if not is_main_service_running():
+        return "stop"
+    try:
+        import recording
+
+        if recording.is_recording():
+            return "start"
+    except Exception:
+        pass
+    return "stop"
 
 
 def service_log_folder_abs() -> str:

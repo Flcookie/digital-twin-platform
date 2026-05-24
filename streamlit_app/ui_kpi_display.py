@@ -58,6 +58,7 @@ _CHART_TITLE_RATES = "Completion & Scrap (/s)"
 _TREND_ROLLING_DEPARTURES = 20
 _RATE_TREND_Y_MAX_HISTORY = 20
 _RATE_TREND_Y_PAD = 1.2
+_TREND_WIP_EMPTY_Y_HI = 10
 _RATE_TREND_Y_EMPTY_HI = 0.05
 _SESSION_RATE_Y_PEAKS = "_kpi_rate_trend_y_peak_history"
 _SESSION_RATE_Y_SESSION = "_kpi_rate_trend_y_session_id"
@@ -890,14 +891,24 @@ def _trend_pair_layout_extras(*, margin_left: int = 60) -> dict[str, Any]:
     return base
 
 
+def _trend_empty_x_range() -> tuple[datetime.datetime, datetime.datetime]:
+    end = datetime.datetime.now()
+    start = end - datetime.timedelta(minutes=2)
+    return start, end
+
+
 def _trend_pair_apply_xaxis(fig: go.Figure, *, empty: bool) -> None:
-    fig.update_xaxes(
+    kw: dict[str, Any] = dict(
         title=dict(text=""),
-        showticklabels=not empty,
+        showticklabels=True,
         tickformat="%H:%M:%S",
         nticks=4,
         tickangle=0,
     )
+    if empty:
+        x0, x1 = _trend_empty_x_range()
+        kw["range"] = [x0, x1]
+    fig.update_xaxes(**kw)
 
 
 def _wip_trend_series_average(hist: list[tuple[float, int]]) -> float:
@@ -937,7 +948,7 @@ def _wip_trend_apply_axes(
     if empty:
         fig.update_yaxes(
             title=dict(text=""),
-            range=[0, 4],
+            range=[0, _TREND_WIP_EMPTY_Y_HI],
             autorange=False,
             nticks=5,
             tickformat="d",
@@ -962,6 +973,29 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
         fig.update_layout(
             **_trend_pair_layout_extras(),
             title=_trend_chart_title(_CHART_TITLE_WIP),
+        )
+        _stub_t = datetime.datetime.now()
+        fig.add_trace(
+            go.Scatter(
+                x=[_stub_t],
+                y=[0],
+                mode="lines",
+                name="WIP",
+                line=dict(color=_KPI_COLOR_WIP, width=2.5),
+                opacity=0,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[_stub_t],
+                y=[0],
+                mode="lines",
+                name="AVG WIP (window)",
+                line=dict(color=_UI_THEME["orange"], width=2, dash="6px,3px"),
+                opacity=0,
+                hoverinfo="skip",
+            )
         )
         _wip_trend_apply_axes(fig, empty=True)
         return fig
@@ -1097,6 +1131,7 @@ def _rate_trend_apply_axes(
             title=dict(text=""),
             range=[0.0, _RATE_TREND_Y_EMPTY_HI],
             autorange=False,
+            nticks=6,
         )
     else:
         fig.update_yaxes(
@@ -1114,6 +1149,31 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
         fig.update_layout(
             **_trend_pair_layout_extras(margin_left=40),
             title=_trend_chart_title(_CHART_TITLE_RATES),
+        )
+        _stub_t = datetime.datetime.now()
+        fig.add_trace(
+            go.Scatter(
+                x=[_stub_t],
+                y=[0],
+                mode="lines+markers",
+                name="Completion Rate (/s)",
+                line=dict(color=_KPI_COLOR_COMPLETION, width=2.5),
+                marker=dict(size=3, color=_KPI_COLOR_COMPLETION, opacity=0),
+                opacity=0,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[_stub_t],
+                y=[0],
+                mode="lines+markers",
+                name="Scrap Rate (/s)",
+                line=dict(color=_KPI_COLOR_SCRAP, width=2.5),
+                marker=dict(size=3, color=_KPI_COLOR_SCRAP, opacity=0),
+                opacity=0,
+                hoverinfo="skip",
+            )
         )
         _rate_trend_apply_axes(fig, empty=True)
         return fig
