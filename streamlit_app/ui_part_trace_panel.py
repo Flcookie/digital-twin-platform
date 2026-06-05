@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 import flow_classification
+import flow_conformance_engine as fce
 import mqtt_backend
 import neo4j_backend
 import part_station_matrix
@@ -17,24 +18,24 @@ import twin_layout
 
 
 def _twin_session_summary_column_names() -> list[str]:
-    return ["Part ID"] + [
-        part_track_conformance.SLOT_HEADERS_M[s]
-        for s in part_track_conformance.SLOTS
-    ] + ["Current Location", "Complete trace"]
+    return ["Part ID"] + list(fce.FLOW_STEP_HEADERS_M) + [
+        "Location",
+        "Trace",
+    ]
 
 
 # 与 code/flow.py FLOW CONFORMANCE 一致（图例 + 单元格色）
 _TWIN_FLOW_CLR_STEP_DONE = "#1a6b3c"
 _TWIN_FLOW_CLR_STEP_REWORK = "#e67e22"
 _TWIN_FLOW_CLR_STEP_EMPTY = "#e8e8e8"
+_TWIN_FLOW_CLR_QC = "#8e44ad"
+_TWIN_FLOW_CLR_SKIPPED_BORDER = "#ff9999"
 _TWIN_FLOW_CLR_COL_ANOMALY = "#fff0f0"
-_TWIN_FLOW_CLR_COL_SCRAP = "#d1d5db"
-_TWIN_FLOW_CLR_COL_FINISHED = "rgba(26, 107, 60, 0.15)"
-_TWIN_FLOW_CLR_LEGEND_SCRAP = "#4b5563"
+_TWIN_FLOW_CLR_SCRAP = "#4b5563"
 _TWIN_FLOW_CLR_COL_NORMAL = "#ffffff"
 _TWIN_FLOW_Q_TRACE = "dt_pt_trace"
 _DT_TRACE_ROWS_SESSION_KEY = "_dt_trace_rows_pt"
-_VIEW_TRACE_CELL = "Complete trace"
+_VIEW_TRACE_CELL = "View"
 _PT_FLASH_SEC = 2.0
 _PT_FLASH_CHECKOUT_BG = "rgba(34, 197, 94, 0.38)"
 _PT_FLASH_SCRAP_BG = "rgba(239, 68, 68, 0.38)"
@@ -57,17 +58,41 @@ def _twin_flow_maybe_open_trace_from_query(rows_pt: list[dict]) -> None:
         pass
 
 
-def _twin_flow_slot_cell_inner_html(slot: str, rep: dict) -> str:
-    dg = rep.get("display_grid") or {}
-    stt = dg.get(slot, "NOT_DONE")
+def _twin_flow_step_cell_inner_html(step_i: int, rep: dict) -> str:
+    dg = rep.get("display_step_grid") or {}
+    stt = dg.get(step_i, "NOT_DONE")
     lap_open = bool(rep.get("lap_open"))
     hcx = bool(rep.get("has_cycle_context"))
+    fs = rep.get("flow_state") or {}
+    n_rework_list = fs.get("n_rework") or [1] * fce.N_STEPS
+    try:
+        n_rew = int(n_rework_list[step_i])
+    except (TypeError, ValueError, IndexError):
+        n_rew = 1
+    if stt == "SCRAP":
+        return (
+            f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
+            f"background:{_TWIN_FLOW_CLR_SCRAP};margin:auto;display:flex;"
+            "align-items:center;justify-content:center;color:white;'>"
+            "<span style='font-size:1.1rem;line-height:1;'>🗑</span>"
+            "</div>"
+        )
     if stt == "REWORK":
         return (
             f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
             f"background:{_TWIN_FLOW_CLR_STEP_REWORK};margin:auto;display:flex;"
             "align-items:center;justify-content:center;color:white;'>"
             "<span style='font-size:1.8rem;line-height:1;'>↺</span>"
+            f"<span style='position:absolute;font-size:0.55rem;font-weight:bold;"
+            f"margin-top:2px;'>{n_rew}</span>"
+            "</div>"
+        )
+    if stt == "QC":
+        return (
+            f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
+            f"background:{_TWIN_FLOW_CLR_QC};margin:auto;display:flex;"
+            "align-items:center;justify-content:center;color:white;font-size:0.75rem;'>"
+            "🔍"
             "</div>"
         )
     if stt == "DONE":
@@ -78,7 +103,57 @@ def _twin_flow_slot_cell_inner_html(slot: str, rep: dict) -> str:
     if stt == "NOT_DONE" and hcx and not lap_open:
         return (
             f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
-            "margin:auto;border:2px solid #f99;'></div>"
+            f"margin:auto;border:2px solid {_TWIN_FLOW_CLR_SKIPPED_BORDER};'></div>"
+        )
+    if stt == "NOT_DONE":
+        return (
+            f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
+            "margin:auto;border:1px solid #ccc;'></div>"
+        )
+    return (
+        f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
+        "margin:auto;border:1px solid #ccc;'></div>"
+    )
+
+
+def _twin_flow_slot_cell_inner_html(slot: str, rep: dict) -> str:
+    dg = rep.get("display_grid") or {}
+    stt = dg.get(slot, "NOT_DONE")
+    lap_open = bool(rep.get("lap_open"))
+    hcx = bool(rep.get("has_cycle_context"))
+    if stt == "SCRAP":
+        return (
+            f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
+            f"background:{_TWIN_FLOW_CLR_SCRAP};margin:auto;display:flex;"
+            "align-items:center;justify-content:center;color:white;'>"
+            "<span style='font-size:1.1rem;line-height:1;'>🗑</span>"
+            "</div>"
+        )
+    if stt == "REWORK":
+        return (
+            f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
+            f"background:{_TWIN_FLOW_CLR_STEP_REWORK};margin:auto;display:flex;"
+            "align-items:center;justify-content:center;color:white;'>"
+            "<span style='font-size:1.8rem;line-height:1;'>↺</span>"
+            "</div>"
+        )
+    if stt == "QC":
+        return (
+            f"<div style='position:relative;width:28px;height:28px;border-radius:4px;"
+            f"background:{_TWIN_FLOW_CLR_QC};margin:auto;display:flex;"
+            "align-items:center;justify-content:center;color:white;font-size:0.75rem;'>"
+            "🔍"
+            "</div>"
+        )
+    if stt == "DONE":
+        return (
+            f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_DONE};"
+            "margin:auto;'></div>"
+        )
+    if stt == "NOT_DONE" and hcx and not lap_open:
+        return (
+            f"<div style='width:28px;height:28px;border-radius:4px;background:{_TWIN_FLOW_CLR_STEP_EMPTY};"
+            f"margin:auto;border:2px solid {_TWIN_FLOW_CLR_SKIPPED_BORDER};'></div>"
         )
     if stt == "NOT_DONE":
         return (
@@ -131,7 +206,9 @@ def _update_part_trace_row_flashes(rows_pt: list[dict]) -> None:
         laps = rep.get("laps") or []
         last_out = str(laps[-1].get("outcome") or "").upper() if laps else ""
         dg = rep.get("display_grid") or {}
-        is_scrap = any(dg.get(s) == "SCRAP" for s in part_track_conformance.SLOTS)
+        is_scrap = last_out == "SCRAP" or any(
+            dg.get(s) == "SCRAP" for s in part_track_conformance.SLOTS
+        )
         sig = "{}|{}|{}".format(int(bool(rep.get("lap_open"))), last_out, int(is_scrap))
         new_sig[pid] = sig
         if pid in prev and prev[pid] != sig:
@@ -151,48 +228,42 @@ def _update_part_trace_row_flashes(rows_pt: list[dict]) -> None:
 
 
 def _twin_flow_legend_html() -> str:
-    """图例顺序：Processed → Rework → Finished → Scrapped → Not Done。"""
+    """图例：工序格状态（Done=工位已过；无 lap 级 Finished，整圈 FINISH 仅行闪绿）。"""
     d = _TWIN_FLOW_CLR_STEP_DONE
     r = _TWIN_FLOW_CLR_STEP_REWORK
     e = _TWIN_FLOW_CLR_STEP_EMPTY
-    fin = _TWIN_FLOW_CLR_COL_FINISHED
-    scrap = _TWIN_FLOW_CLR_LEGEND_SCRAP
+    scrap = _TWIN_FLOW_CLR_SCRAP
     return (
         "<div style='display:flex;gap:16px;margin-bottom:10px;font-size:13px;"
         "align-items:center;flex-wrap:wrap;color:#64748b;'>"
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"
         f"<span style='width:14px;height:14px;border-radius:3px;background:{d};"
-        "display:inline-block;'></span>Processed</span>"
+        "display:inline-block;'></span>Done</span>"
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"
         f"<span style='position:relative;width:14px;height:14px;border-radius:3px;"
         f"background:{r};display:inline-flex;align-items:center;justify-content:center;"
         "color:white;font-size:11px;line-height:1;'>↺</span>Rework</span>"
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"
-        f"<span style='width:14px;height:14px;border-radius:3px;background:{fin};"
-        f"border:1px solid {d};display:inline-flex;align-items:center;justify-content:center;"
-        "font-size:10px;line-height:1;'>✅</span>Finished</span>"
-        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
-        f"<span style='width:14px;height:14px;border-radius:3px;background:{scrap};"
-        "display:inline-flex;align-items:center;justify-content:center;color:white;"
-        "font-size:9px;line-height:1;'>🗑️</span>Scrapped</span>"
+        f"<span style='position:relative;width:14px;height:14px;border-radius:3px;"
+        f"background:{_TWIN_FLOW_CLR_QC};display:inline-flex;align-items:center;"
+        "justify-content:center;color:white;font-size:10px;line-height:1;'>🔍</span>QC</span>"
         "<span style='display:inline-flex;align-items:center;gap:6px;'>"
         f"<span style='width:14px;height:14px;border-radius:3px;background:{e};"
         "border:1px solid #cbd5e1;display:inline-block;'></span>Not Done</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;'>"
+        f"<span style='width:14px;height:14px;border-radius:3px;background:{scrap};"
+        "display:inline-flex;align-items:center;justify-content:center;color:white;"
+        "font-size:9px;line-height:1;'>🗑</span>Scrapped</span>"
         "</div>"
     )
 
 
 def _twin_flow_row_td_background(rep: dict, conf_style: str, part_id: str = "") -> str:
-    _ = rep
+    """Row background: flash only. Rework/scrap/anomaly show in slot cells, not whole row."""
+    _ = rep, conf_style
     flash = _part_trace_row_flash_bg(part_id) if part_id else None
     if flash:
         return flash
-    if conf_style == "scrap":
-        return _TWIN_FLOW_CLR_COL_SCRAP
-    if conf_style == "rework":
-        return _TWIN_FLOW_CLR_COL_ANOMALY
-    if conf_style == "skipped":
-        return _TWIN_FLOW_CLR_COL_ANOMALY
     return _TWIN_FLOW_CLR_COL_NORMAL
 
 
@@ -202,48 +273,42 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
     st.markdown(_twin_flow_legend_html(), unsafe_allow_html=True)
 
     _cell = (
-        "<div style='padding:10px 6px;background:#1e293b;color:white;font-size:15px;"
-        "font-weight:600;border-radius:4px;text-align:center;min-height:2.6rem;"
+        "<div style='padding:8px 4px;background:#1e293b;color:white;font-size:14px;"
+        "font-weight:600;border-radius:4px;text-align:center;min-height:2.5rem;"
         "display:flex;align-items:center;justify-content:center;white-space:nowrap;'>{}</div>"
     )
     _hdr_slot = (
-        "<div style='padding:10px 4px;background:#1e293b;color:white;font-size:15px;"
-        "font-weight:600;border-radius:4px;text-align:center;min-height:2.6rem;"
-        "display:flex;align-items:center;justify-content:center;white-space:nowrap;'>{}</div>"
+        "<div style='padding:6px 2px;background:#1e293b;color:white;font-size:13px;"
+        "font-weight:600;border-radius:4px;text-align:center;min-height:2.5rem;"
+        "display:flex;align-items:center;justify-content:center;"
+        "white-space:nowrap;line-height:1.15;'>{}</div>"
     )
 
-    col_weights = [0.72] + [0.48] * len(part_track_conformance.SLOTS) + [1.08, 0.92]
+    n_steps = fce.N_STEPS
+    # Part / Location / Trace 收窄；M5 两列略加宽以免表头换行
+    _step_w = [0.34, 0.36, 0.34, 0.36, 0.46, 0.36, 0.46, 0.34, 0.34]
+    col_weights = [0.46] + _step_w + [0.50, 0.46]
     hdr = st.columns(col_weights, gap="small", vertical_alignment="center")
     with hdr[0]:
         st.markdown(_cell.format("Part"), unsafe_allow_html=True)
-    for j, s in enumerate(part_track_conformance.SLOTS):
-        lab = html_module.escape(part_track_conformance.SLOT_HEADERS_M[s])
+    for j in range(n_steps):
+        lab = html_module.escape(fce.FLOW_STEP_HEADERS_M[j])
         with hdr[j + 1]:
             st.markdown(_hdr_slot.format(lab), unsafe_allow_html=True)
-    with hdr[len(part_track_conformance.SLOTS) + 1]:
-        st.markdown(_cell.format("Current Location"), unsafe_allow_html=True)
-    with hdr[len(part_track_conformance.SLOTS) + 2]:
-        st.markdown(_cell.format("Complete trace"), unsafe_allow_html=True)
+    with hdr[n_steps + 1]:
+        st.markdown(_hdr_slot.format("Location"), unsafe_allow_html=True)
+    with hdr[n_steps + 2]:
+        st.markdown(_hdr_slot.format("Trace"), unsafe_allow_html=True)
 
-    display_rows = list(rows_pt)
-    if not display_rows:
-        display_rows = [
-            {
-                "Part ID": "—",
-                "Current Location": "—",
-                "_replay": {
-                    "display_grid": {
-                        s: "NOT_DONE" for s in part_track_conformance.SLOTS
-                    },
-                    "lap_open": False,
-                    "has_cycle_context": False,
-                    "laps": [],
-                },
-                "_conf_style": "neutral",
-            }
-        ]
+    st.markdown(
+        "<div style='height:10px;line-height:0;font-size:0;' aria-hidden='true'>&nbsp;</div>",
+        unsafe_allow_html=True,
+    )
 
-    for i, r in enumerate(display_rows):
+    if not rows_pt:
+        return
+
+    for i, r in enumerate(rows_pt):
         rep = r["_replay"]
         cs = r.get("_conf_style", "neutral")
         row_bg = _twin_flow_row_td_background(rep, cs, str(r.get("Part ID") or ""))
@@ -253,14 +318,14 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
         cols = st.columns(col_weights, gap="small", vertical_alignment="center")
         with cols[0]:
             st.markdown(
-                "<div style='padding:8px 10px;background:#334155;color:white;font-weight:600;"
+                "<div style='padding:6px 4px;background:#334155;color:white;font-weight:600;"
                 "font-size:14px;border-radius:4px;text-align:center;white-space:nowrap;'>{}</div>".format(
                     pid
                 ),
                 unsafe_allow_html=True,
             )
-        for j, s in enumerate(part_track_conformance.SLOTS):
-            inner = _twin_flow_slot_cell_inner_html(s, rep)
+        for j in range(n_steps):
+            inner = _twin_flow_step_cell_inner_html(j, rep)
             with cols[j + 1]:
                 st.markdown(
                     "<div style='padding:6px 4px;background:{};text-align:center;border-radius:4px;'>{}</div>".format(
@@ -268,23 +333,24 @@ def render_digital_twin_flow_conformance_table(rows_pt: list[dict]) -> None:
                     ),
                     unsafe_allow_html=True,
                 )
-        with cols[len(part_track_conformance.SLOTS) + 1]:
+        with cols[n_steps + 1]:
             st.markdown(
-                "<div style='padding:8px 10px;background:{};font-size:14px;color:#1e293b;"
+                "<div style='padding:6px 4px;background:{};font-size:14px;color:#1e293b;"
                 "border-radius:4px;text-align:center;display:flex;align-items:center;"
-                "justify-content:center;min-height:2.6rem;white-space:nowrap;'>{}</div>".format(
+                "justify-content:center;min-height:2.4rem;white-space:nowrap;"
+                "overflow:hidden;text-overflow:ellipsis;'>{}</div>".format(
                     row_bg, loc_txt
                 ),
                 unsafe_allow_html=True,
             )
-        with cols[len(part_track_conformance.SLOTS) + 2]:
+        with cols[n_steps + 2]:
             if st.button(
                 _VIEW_TRACE_CELL,
                 key="dt_pt_trace_btn_{}".format(i),
                 type="secondary",
                 use_container_width=True,
                 disabled=str(r.get("Part ID") or "") == "—",
-                help="Open complete trace (this page)",
+                help="View complete trace for this part",
             ):
                 st.session_state["ptc_twin_trace_modal_idx"] = i
                 # 按钮在 Digital Twin 的 @st.fragment 内时，默认只重跑 fragment；
@@ -613,6 +679,7 @@ def render_part_trace_panel(
     coordinated_twin_session_id: str | None = None,
     kpi_for_replay: dict | None = None,
     twin_preloaded_parts: list[dict] | None = None,
+    twin_preloaded_rows: list[dict] | None = None,
     twin_preloaded_session_id: str | None = None,
 ) -> None:
     bootstrap_part_trace_session_state(from_query_params=from_query_params)
@@ -691,8 +758,11 @@ def render_part_trace_panel(
     _use_twin_preload = (
         use_page_session
         and use_coordinated_twin_session
-        and twin_preloaded_parts is not None
         and force_all_parts
+        and (
+            twin_preloaded_parts is not None
+            or twin_preloaded_rows is not None
+        )
     )
     if _use_twin_preload:
         parts = list(twin_preloaded_parts)
@@ -718,7 +788,10 @@ def render_part_trace_panel(
 
     if show_summary:
         if use_page_session:
-            rows_pt = part_track_conformance.build_session_table_rows(parts)
+            if twin_preloaded_rows is not None:
+                rows_pt = twin_preloaded_rows
+            else:
+                rows_pt = part_track_conformance.build_session_table_rows(parts)
             if rows_pt:
                 _twin_flow_maybe_open_trace_from_query(rows_pt)
                 render_digital_twin_flow_conformance_table(rows_pt)

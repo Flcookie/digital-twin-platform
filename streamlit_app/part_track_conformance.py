@@ -1,10 +1,12 @@
-"""Part Track & Conformance — corner2 START 定界主流程圈；FINISH 后回线照常收录；FAIL 用 had_fail + failed_stations。"""
+"""Part Track & Conformance — corner2 START 定界主流程圈；FINISH 后回线照常收录；路径期望对齐 code/flow.py。"""
 from __future__ import annotations
 
 import copy
 import html as html_module
 import re
 from typing import Any, TypedDict
+
+import flow_conformance_engine as fce
 
 
 def _natural_part_id_key(pid: str) -> tuple:
@@ -126,6 +128,11 @@ def _initial_grid() -> dict[str, str]:
     return {s: "NOT_DONE" for s in SLOTS}
 
 
+def _grid_mark_scrap_at_lap_close(grid: dict[str, str]) -> None:
+    """Deprecated: SCRAP is lap-level only (splitter5); matrix cells keep DONE/REWORK."""
+    _ = grid
+
+
 def _norm_cid(component_id: str) -> str:
     return str(component_id or "").strip().lower()
 
@@ -158,21 +165,25 @@ def get_lap_conformance(
     lap_failed_stations: set[str] | frozenset[str] | None = None,
     *,
     lap_outcome: str | None = None,
+    flow_anomaly: bool = False,
+    all_steps_reached: bool = False,
 ) -> dict[str, str]:
-    """闭圈判定：SCRAP → REWORK（本圈曾 FAIL 的工位快照）→ SKIPPED → NORMAL。"""
+    """闭圈判定：SCRAP → ANOMALY → REWORK → SKIPPED → NORMAL（路径逻辑对齐 code/flow.py）。"""
     if str(lap_outcome or "").strip().upper() == "SCRAP":
         return {"status": "SCRAP", "detail": ""}
     fset: set[str] = set(lap_failed_stations or ())
     is_scrap = any(grid.get(s) == "SCRAP" for s in SLOTS)
     if is_scrap:
         return {"status": "SCRAP", "detail": ""}
-    if fset:
+    if flow_anomaly:
+        return {"status": "ANOMALY", "detail": "Flow path anomaly"}
+    if fset or any(grid.get(s) == "REWORK" for s in SLOTS):
         detail = ", ".join(
             STATION_DISPLAY.get(st, st) for st in sorted(fset)
         )
         return {"status": "REWORK", "detail": detail}
     skipped = [s for s in SLOTS if grid.get(s) == "NOT_DONE"]
-    if skipped:
+    if skipped or not all_steps_reached:
         return {"status": "SKIPPED", "detail": ", ".join(skipped)}
     return {"status": "NORMAL", "detail": ""}
 
@@ -182,9 +193,15 @@ def _lap_conformance_label_color_status(
     lap_failed_stations: set[str] | frozenset[str] | None = None,
     *,
     lap_outcome: str | None = None,
+    flow_anomaly: bool = False,
+    all_steps_reached: bool = False,
 ) -> tuple[str, str, str]:
     c = get_lap_conformance(
-        grid, lap_failed_stations, lap_outcome=lap_outcome
+        grid,
+        lap_failed_stations,
+        lap_outcome=lap_outcome,
+        flow_anomaly=flow_anomaly,
+        all_steps_reached=all_steps_reached,
     )
     st = c["status"]
     d = c.get("detail") or ""
@@ -192,6 +209,8 @@ def _lap_conformance_label_color_status(
         return "\u2713 Normal", "#3fb950", "NORMAL"
     if st == "REWORK":
         return "\u21ba Rework: {}".format(d), "#fb923c", "REWORK"
+    if st == "ANOMALY":
+        return "\u26a0 Flow anomaly", "#f85149", "ANOMALY"
     if st == "SKIPPED":
         return "\u26a0 Skipped: {}".format(d), "#f85149", "SKIPPED"
     if st == "SCRAP":
@@ -216,14 +235,20 @@ def conformance_column_display(rep: dict[str, Any]) -> tuple[str, str]:
         return "\u2014 In progress", "in_progress"
     laps = rep.get("laps") or []
     last_outcome = str(laps[-1].get("outcome") or "") if laps else ""
+    last_flow = (laps[-1].get("flow") or {}) if laps else {}
+    reached = last_flow.get("reached") or []
+    all_ok = bool(reached) and all(reached)
     lab, _, st = _lap_conformance_label_color_status(
         rep["display_grid"],
         rep.get("last_closed_lap_failed_stations") or set(),
         lap_outcome=last_outcome,
+        flow_anomaly=bool(rep.get("flow_anomaly")),
+        all_steps_reached=all_ok,
     )
     key = {
         "NORMAL": "normal",
         "REWORK": "rework",
+        "ANOMALY": "anomaly",
         "SKIPPED": "skipped",
         "SCRAP": "scrap",
     }.get(st, "neutral")
@@ -231,40 +256,37 @@ def conformance_column_display(rep: dict[str, Any]) -> tuple[str, str]:
 
 
 def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
-    """逐事件回放：had_fail + failed_stations（原始 station id，可多工位）。
-
-    一圈在 ``splitter5`` + FINISH（或 SCRAP）时封存。FINISH 之后、下一次 ``corner2`` START
-    之前的回线路由并入下一圈 trace，不单独成「仅路由、全槽 Skipped」的假 lap。
-    """
+    """逐事件回放：9 步路径期望（code/flow.py）+ lap 定界（corner2 START / splitter5 FINISH|SCRAP）。"""
     ordered = _sort_steps([dict(s) for s in (steps or [])])
     laps: list[dict[str, Any]] = []
-    grid = _initial_grid()
-    had_fail = False
-    failed_stations: set[str] = set()
+    flow = fce.new_flow_state()
     lap_events: list[dict] = []
     lap_open = False
     lap_start_ts: float | None = None
     last_closed_grid: dict[str, str] = _initial_grid()
+    last_closed_step_grid: dict[int, str] = {
+        i: "NOT_DONE" for i in range(fce.N_STEPS)
+    }
     last_closed_lap_failed_stations: set[str] = set()
+    last_closed_flow_anomaly = False
+    last_closed_all_steps = False
     current_location = "—"
     last_ev: dict | None = None
     post_finish_buffer: list[dict] = []
 
-    def archive_lap(
-        outcome: str,
-        end_ts: float,
-        final_grid: dict[str, str],
-        lap_failed_snap: set[str],
-    ) -> None:
+    def archive_lap(outcome: str, end_ts: float, flow_snap: fce.FlowState) -> None:
         start_ts = lap_start_ts if lap_start_ts is not None else end_ts
         dur = max(0.0, end_ts - start_ts) if end_ts and start_ts else 0.0
+        final_grid = fce.flow_state_to_display_grid(flow_snap)
+        lap_failed = set(flow_snap.failed_stations)
         laps.append(
             {
                 "outcome": outcome,
                 "duration_sec": round(dur, 1),
                 "events": copy.deepcopy(lap_events),
                 "final_grid": copy.deepcopy(final_grid),
-                "lap_failed_stations": set(lap_failed_snap),
+                "lap_failed_stations": lap_failed,
+                "flow": fce.flow_state_snapshot(flow_snap),
             }
         )
 
@@ -282,17 +304,10 @@ def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
 
         if comp == "corner2" and act == "START":
             if lap_open and lap_events:
-                archive_lap(
-                    "IN_PROGRESS",
-                    ts,
-                    copy.deepcopy(grid),
-                    set(failed_stations),
-                )
+                archive_lap("IN_PROGRESS", ts, flow)
             buf = post_finish_buffer
             post_finish_buffer = []
-            grid = _initial_grid()
-            had_fail = False
-            failed_stations = set()
+            flow = fce.new_flow_state()
             lap_events = buf + [ev]
             lap_open = True
             lap_start_ts = _ev_ts(buf[0]) if buf else ts
@@ -308,58 +323,61 @@ def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
 
         if lap_open:
             lap_events.append(ev)
-            slot = STATION_TO_SLOT.get(comp)
-            if slot:
-                if act == "FAIL":
-                    had_fail = True
-                    failed_stations.add(comp)
-                elif act in ("LOAD", "PASS"):
-                    if grid.get(slot) == "NOT_DONE":
-                        grid[slot] = "DONE"
 
             if comp == "splitter5" and act == "FINISH":
-                lap_snap = set(failed_stations)
-                if had_fail:
-                    for st in failed_stations:
-                        sl = STATION_TO_SLOT.get(st)
-                        if sl:
-                            grid[sl] = "REWORK"
-                archive_lap("FINISH", ts, copy.deepcopy(grid), lap_snap)
-                last_closed_grid = copy.deepcopy(grid)
-                last_closed_lap_failed_stations = set(lap_snap)
+                fce.apply_fail_rework_to_flow(flow)
+                archive_lap("FINISH", ts, flow)
+                last_closed_grid = fce.flow_state_to_display_grid(flow)
+                last_closed_step_grid = fce.flow_state_to_step_display_grid(flow)
+                last_closed_lap_failed_stations = set(flow.failed_stations)
+                last_closed_flow_anomaly = flow.anomaly
+                last_closed_all_steps = all(flow.reached)
                 lap_open = False
                 lap_events = []
-                had_fail = False
-                failed_stations = set()
+                flow = fce.new_flow_state()
                 continue
 
             if comp == "splitter5" and act == "SCRAP":
-                archive_lap("SCRAP", ts, copy.deepcopy(grid), set())
-                last_closed_grid = copy.deepcopy(grid)
+                fce.apply_flow_event(flow, ev)
+                archive_lap("SCRAP", ts, flow)
+                last_closed_grid = fce.flow_state_to_display_grid(flow)
+                last_closed_step_grid = fce.flow_state_to_step_display_grid(flow)
                 last_closed_lap_failed_stations = set()
+                last_closed_flow_anomaly = flow.anomaly
+                last_closed_all_steps = all(flow.reached)
                 lap_open = False
                 lap_events = []
-                had_fail = False
-                failed_stations = set()
+                flow = fce.new_flow_state()
                 continue
+
+            fce.apply_flow_event(flow, ev)
 
     if post_finish_buffer and not lap_open and laps and str(
         laps[-1].get("outcome") or ""
     ) == "FINISH":
-        grid = _initial_grid()
-        had_fail = False
-        failed_stations = set()
+        flow = fce.new_flow_state()
         lap_events = copy.deepcopy(post_finish_buffer)
         lap_open = True
         lap_start_ts = _ev_ts(post_finish_buffer[0])
         post_finish_buffer.clear()
+        for ev in lap_events:
+            fce.apply_flow_event(flow, ev)
 
-    display_grid = copy.deepcopy(grid) if lap_open else copy.deepcopy(last_closed_grid)
     if lap_open:
+        display_grid = fce.flow_state_to_display_grid(flow)
+        display_step_grid = fce.flow_state_to_step_display_grid(flow)
         conf = "IN PROGRESS"
     else:
-        c = get_lap_conformance(display_grid, last_closed_lap_failed_stations)
+        display_grid = copy.deepcopy(last_closed_grid)
+        display_step_grid = copy.deepcopy(last_closed_step_grid)
+        c = get_lap_conformance(
+            display_grid,
+            last_closed_lap_failed_stations,
+            flow_anomaly=last_closed_flow_anomaly,
+            all_steps_reached=last_closed_all_steps,
+        )
         conf = c["status"]
+
     lap_index_display = len(laps) + (1 if lap_open else 0)
     outcome_cur = "IN_PROGRESS" if lap_open else (laps[-1]["outcome"] if laps else "—")
     has_cycle_context = bool(laps) or lap_open
@@ -367,6 +385,7 @@ def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
     return {
         "laps": laps,
         "display_grid": display_grid,
+        "display_step_grid": display_step_grid,
         "lap_open": lap_open,
         "current_lap_events": copy.deepcopy(lap_events) if lap_open else [],
         "current_location": current_location,
@@ -376,6 +395,10 @@ def replay_part_trace(steps: list[dict]) -> dict[str, Any]:
         "last_event": last_ev,
         "has_cycle_context": has_cycle_context,
         "last_closed_lap_failed_stations": last_closed_lap_failed_stations,
+        "flow_anomaly": flow.anomaly if lap_open else last_closed_flow_anomaly,
+        "flow_state": fce.flow_state_snapshot(flow) if lap_open else (
+            (laps[-1].get("flow") if laps else None)
+        ),
     }
 
 
@@ -391,6 +414,8 @@ def part_track_grid_cell_display(
     slot: str, state: str, *, lap_open: bool, has_cycle_context: bool
 ) -> str:
     st = state or "NOT_DONE"
+    if st == "QC":
+        return "QC"
     if has_cycle_context and st == "NOT_DONE" and not lap_open:
         return "! {}".format(cell_display("NOT_DONE"))
     return cell_display(st)
@@ -507,18 +532,33 @@ def _lap_outcome_badge(oc_raw: str) -> tuple[str, str, str]:
 
 
 def _trace_conformance_span(
-    fg: dict[str, str], lf: Any, *, lap_outcome: str | None = None
+    fg: dict[str, str],
+    lf: Any,
+    *,
+    lap_outcome: str | None = None,
+    flow_anomaly: bool = False,
+    all_steps_reached: bool = False,
 ) -> tuple[str, str, str]:
     """(图标, 主文案不带 emoji 前缀, CSS color)"""
     lf_set: set[str] = set(lf or [])
     lab, _col, status = _lap_conformance_label_color_status(
-        fg, lf_set, lap_outcome=lap_outcome
+        fg,
+        lf_set,
+        lap_outcome=lap_outcome,
+        flow_anomaly=flow_anomaly,
+        all_steps_reached=all_steps_reached,
     )
-    icon = {"NORMAL": "\u2713", "REWORK": "\u21ba", "SKIPPED": "\u26a0", "SCRAP": "\u2717"}.get(
+    icon = {"NORMAL": "\u2713", "REWORK": "\u21ba", "ANOMALY": "\u26a0", "SKIPPED": "\u26a0", "SCRAP": "\u2717"}.get(
         status,
         "\u2014",
     )
-    cmap = {"NORMAL": "#3fb950", "REWORK": "#ffa657", "SKIPPED": "#f85149", "SCRAP": "#f85149"}
+    cmap = {
+        "NORMAL": "#3fb950",
+        "REWORK": "#ffa657",
+        "ANOMALY": "#f85149",
+        "SKIPPED": "#f85149",
+        "SCRAP": "#f85149",
+    }
     ccol = cmap.get(status, "#8b949e")
     for ch in ("\u2713", "\u21ba", "\u26a0", "\u2717"):
         if lab.startswith(ch):
@@ -527,6 +567,7 @@ def _trace_conformance_span(
     body = lab or {
         "NORMAL": "Normal",
         "REWORK": "Rework",
+        "ANOMALY": "Flow anomaly",
         "SKIPPED": "Skipped",
         "SCRAP": "Scrap",
     }.get(status, "")
@@ -534,10 +575,23 @@ def _trace_conformance_span(
 
 
 def _closed_lap_header_html(
-    lap_index: int, outcome: str, duration_sec: float, fg: dict[str, str], lf: Any
+    lap_index: int,
+    outcome: str,
+    duration_sec: float,
+    fg: dict[str, str],
+    lf: Any,
+    flow: dict[str, Any] | None = None,
 ) -> str:
     res_txt, res_bg, res_fg = _lap_outcome_badge(outcome)
-    ic, cf_body, cf_col = _trace_conformance_span(fg, lf, lap_outcome=outcome)
+    flow_d = flow or {}
+    reached = flow_d.get("reached") or []
+    ic, cf_body, cf_col = _trace_conformance_span(
+        fg,
+        lf,
+        lap_outcome=outcome,
+        flow_anomaly=bool(flow_d.get("anomaly")),
+        all_steps_reached=bool(reached) and all(reached),
+    )
     esc_res = html_module.escape(res_txt)
     dur = "{:.1f}s".format(float(duration_sec))
     lap_n = lap_index
@@ -708,6 +762,7 @@ def format_complete_trace_meaningful_html(replay: dict[str, Any]) -> str:
                 dur,
                 dict(fg) if isinstance(fg, dict) else {},
                 lf,
+                lap.get("flow") if isinstance(lap.get("flow"), dict) else None,
             )
         )
         seq = [

@@ -100,6 +100,18 @@ def _history_panel_css(kp: str) -> str:
         border-bottom-color: #cbd5e1 !important;
         box-shadow: none !important;
     }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_go} button:disabled,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl1} button:disabled,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_dl2} button:disabled,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import} button:disabled,
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_toolbar} [data-testid="stDownloadButton"] > button:disabled {{
+        opacity: 0.45 !important;
+        cursor: not-allowed !important;
+        background: #ffffff !important;
+        color: #94a3b8 !important;
+        border-color: #e2e8f0 !important;
+        box-shadow: none !important;
+    }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_spd} [data-testid="stSelectbox"] {{
         min-height: var(--cp-btn-h, 46px) !important;
         width: 100% !important;
@@ -209,6 +221,11 @@ def _history_panel_css(kp: str) -> str:
     }}
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import_block} {{
         margin: 0 0 0.1rem 0 !important;
+    }}
+    div[data-testid="stMainBlockContainer"] div.st-key-{k_import_block} [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
     }}
     /* Import button column above upload dropzone if overlap (stacked layout uses this less). */
     div[data-testid="stMainBlockContainer"] div.st-key-{k_import_col} {{
@@ -361,17 +378,24 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
         if isinstance(_raw_sel, str) and _raw_sel in sel_ids
         else None
     )
-    if not d:
-        st.session_state["dt_resolved_session"] = chosen_id
+    _export_sid_key = "{}_export_session_id".format(kp)
+    if isinstance(_raw_sel, str) and _raw_sel == _HIST_SESSION_PLACEHOLDER:
+        st.session_state.pop(_export_sid_key, None)
+    elif chosen_id:
+        st.session_state[_export_sid_key] = chosen_id
 
-    _exp_disabled = not chosen_id
+    export_sid: str | None = st.session_state.get(_export_sid_key) if not d else None
+    if not d:
+        st.session_state["dt_resolved_session"] = chosen_id or export_sid
+
+    _exp_disabled = d or not export_sid
     ev_csv = b""
     kpi_csv = b""
-    if chosen_id:
-        ev_csv = _cached_export_events_csv(chosen_id)
-        kpi_csv = _cached_export_kpi_csv(chosen_id)
+    if export_sid:
+        ev_csv = _cached_export_events_csv(export_sid)
+        kpi_csv = _cached_export_kpi_csv(export_sid)
 
-    _can_start = not d and bool(chosen_id) and not _rec_on and not _replay_live
+    _can_start = bool(chosen_id) and not _rec_on and not _replay_live and not d
 
     if not d and not sel_ids:
         st.caption("No sessions yet — import a CSV in the section below.")
@@ -410,6 +434,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                     disabled=not _can_start,
                     use_container_width=True,
                 ):
+                    st.session_state[_export_sid_key] = chosen_id
                     evs = neo4j_backend.fetch_session_events_log_format(chosen_id)
                     if not evs:
                         st.error("No events in this session.")
@@ -457,7 +482,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
             st.download_button(
                 "Export Event Log",
                 data=ev_csv if ev_csv else b"",
-                file_name="session_log_{}.csv".format(chosen_id or "none"),
+                file_name="session_log_{}.csv".format(export_sid or "none"),
                 mime="text/csv",
                 key="{}_dl_log".format(kp),
                 use_container_width=True,
@@ -468,7 +493,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
             st.download_button(
                 "Export KPI Report",
                 data=kpi_csv if kpi_csv else b"",
-                file_name="kpi_log_{}.csv".format(chosen_id or "none"),
+                file_name="kpi_log_{}.csv".format(export_sid or "none"),
                 mime="text/csv",
                 key="{}_dl_kpi".format(kp),
                 use_container_width=True,
@@ -484,7 +509,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
     do_import = False
     with st.container(key="{}_import_block".format(kp)):
         _imp_l, _imp_r = st.columns(
-            [2.2, 1.0], gap="small", vertical_alignment="center"
+            [3, 1], gap="small", vertical_alignment="center"
         )
         with _imp_l:
             up = st.file_uploader(
@@ -502,7 +527,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                     "Import to Database",
                     key="{}_import_btn".format(kp),
                     use_container_width=True,
-                    disabled=d or _dup_wait,
+                    disabled=d or _dup_wait or up is None,
                 )
 
     if do_import:

@@ -258,7 +258,50 @@ def main_service_status() -> dict:
     }
 
 
-def record_control_action(label: str, success: bool, message: str = "") -> None:
+def _progress_host_entries(components: dict) -> dict[str, dict]:
+    return {
+        k: v
+        for k, v in (components or {}).items()
+        if k != "_error" and isinstance(v, dict)
+    }
+
+
+def _success_from_progress(prog: dict) -> bool | None:
+    """Derive overall success from SSH progress JSON; None if not decisive."""
+    if not isinstance(prog, dict) or not prog:
+        return None
+    st = (prog.get("status") or "").strip()
+    if st == "error":
+        return False
+    if st == "completed_with_errors":
+        return False
+    hosts = _progress_host_entries(prog.get("components") or {})
+    if hosts and any(h.get("ok") is not True for h in hosts.values()):
+        return False
+    if st == "completed":
+        return True
+    return None
+
+
+def control_action_status_label(row: dict) -> str:
+    """Display status: successful / failed / unknown."""
+    prog = row.get("progress") if isinstance(row.get("progress"), dict) else {}
+    from_prog = _success_from_progress(prog)
+    if from_prog is True:
+        return "successful"
+    if from_prog is False:
+        return "failed"
+    ok = row.get("success")
+    if ok is True:
+        return "successful"
+    if ok is False:
+        return "failed"
+    return "unknown"
+
+
+def record_control_action(
+    label: str, success: bool, message: str = "", *, output: str = ""
+) -> None:
     """写入最近一次命令结果（供 LIVE 状态条展示；同步命令与后台线程结束时调用）。"""
     payload: dict | None = None
     try:
@@ -270,6 +313,9 @@ def record_control_action(label: str, success: bool, message: str = "") -> None:
             "time_full": now.strftime("%Y-%m-%d %H:%M:%S"),
             "message": (message or "")[:800],
         }
+        out_text = (output or "").strip()
+        if out_text:
+            payload["output"] = out_text[:16000]
         with open(_LAST_CONTROL_ACTION_PATH, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except OSError:
@@ -287,8 +333,21 @@ def record_control_action(label: str, success: bool, message: str = "") -> None:
                         "updated_at": prog.get("updated_at", ""),
                         "components": prog.get("components", {}),
                     }
+                    eff = _success_from_progress(hist["progress"])
+                    if eff is not None:
+                        hist["success"] = eff
+                        payload["success"] = eff
             with open(_CONTROL_HISTORY_PATH, "a", encoding="utf-8") as f:
                 f.write(json.dumps(hist, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def reset_control_log_session() -> None:
+    """Start Programs 提交时清空控制日志，开启新一轮记录。"""
+    try:
+        with open(_CONTROL_HISTORY_PATH, "w", encoding="utf-8"):
+            pass
     except OSError:
         pass
 
@@ -302,7 +361,7 @@ def read_last_control_action() -> dict | None:
 
 
 def read_control_action_history(max_items: int = 60) -> list[dict]:
-    """Newest-first control action history from ``.control_action_history.jsonl``."""
+    """Chronological control action history for the current session (since last Start Programs)."""
     if max_items <= 0:
         return []
     try:
@@ -311,18 +370,86 @@ def read_control_action_history(max_items: int = 60) -> list[dict]:
         with open(_CONTROL_HISTORY_PATH, encoding="utf-8") as f:
             lines = [ln.strip() for ln in f if ln.strip()]
         out: list[dict] = []
-        for ln in reversed(lines):
+        for ln in lines:
             try:
                 item = json.loads(ln)
             except json.JSONDecodeError:
                 continue
             if isinstance(item, dict):
                 out.append(item)
-            if len(out) >= max_items:
-                break
+        if len(out) > max_items:
+            out = out[-max_items:]
         return out
     except OSError:
         return []
+
+
+def format_control_action_record_body(row: dict) -> str:
+    """Plain log body for one control action (no title banner)."""
+    lines: list[str] = []
+
+    msg = (row.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if msg:
+        lines.extend(msg.split("\n"))
+
+    out = (row.get("output") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if out:
+        if lines:
+            lines.append("")
+        lines.extend(out.split("\n"))
+
+    prog = row.get("progress") if isinstance(row.get("progress"), dict) else {}
+    comps = prog.get("components") if isinstance(prog, dict) else {}
+    if isinstance(comps, dict) and comps:
+        lines.append(
+            "{} · {} · {}".format(
+                prog.get("operation", "—"),
+                prog.get("updated_at", "—"),
+                prog.get("status", "—"),
+            )
+        )
+        for k in sorted(comps.keys()):
+            if k == "_error":
+                continue
+            info = comps.get(k) or {}
+            c_ok = bool(info.get("ok"))
+            c_status = "ok" if c_ok else "failed"
+            c_msg = (
+                (info.get("message") or "")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .strip()
+            )
+            lines.append("{} — {}".format(k, c_status))
+            if c_msg:
+                lines.extend(c_msg.split("\n"))
+        err = comps.get("_error")
+        if isinstance(err, dict):
+            em = (err.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            if em:
+                lines.append("_error — failed")
+                lines.extend(em.split("\n"))
+
+    return "\n".join(lines)
+
+
+def format_control_action_record(row: dict) -> str:
+    """One control action as plain log text including title banner."""
+    cmd = str(row.get("cmd") or "—")
+    tm = str(row.get("time_full") or row.get("time") or "")
+    status = control_action_status_label(row)
+    header = "======== {} · {} · {} ========".format(cmd, tm, status)
+    body = format_control_action_record_body(row)
+    if body:
+        return header + "\n" + body
+    return header
+
+
+def format_control_action_history_text(rows: list[dict]) -> str:
+    """Chronological plain log for Control Runs dialog (current session)."""
+    if not rows:
+        return ""
+    return "\n\n".join(format_control_action_record(row) for row in rows)
 
 
 def _deployment_actions_log_path() -> str:
@@ -338,6 +465,7 @@ def _run_script_logged_worker(script_name: str, env: dict | None) -> None:
     detail = ""
     env = env or os.environ.copy()
     script_path = os.path.join(PROJECT_ROOT, script_name + ".py")
+    captured = ""
     try:
         with open(log_path, "a", encoding="utf-8") as lf:
             ts = datetime.datetime.now().isoformat(timespec="seconds")
@@ -347,9 +475,16 @@ def _run_script_logged_worker(script_name: str, env: dict | None) -> None:
                 [sys.executable, script_path],
                 cwd=PROJECT_ROOT,
                 env=env,
-                stdout=lf,
-                stderr=subprocess.STDOUT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
+            captured = (r.stdout or "") + (r.stderr or "")
+            if captured:
+                lf.write(captured)
+                if not captured.endswith("\n"):
+                    lf.write("\n")
             ok = r.returncode == 0
             detail = "exit {}".format(r.returncode)
             lf.write("======== end rc={} ========\n".format(r.returncode))
@@ -361,7 +496,7 @@ def _run_script_logged_worker(script_name: str, env: dict | None) -> None:
                 lf.write("ERROR: {}\n".format(detail))
         except OSError:
             pass
-    record_control_action(label, ok, detail)
+    record_control_action(label, ok, detail, output=captured)
 
 
 def run_script_background(script_name: str, enforce_config: str | None = None):
@@ -436,14 +571,6 @@ def _program_pid_paths_from_env() -> list[str]:
         for p in raw.split(",")
         if p.strip()
     ]
-
-
-def _progress_host_entries(components: dict) -> dict[str, dict]:
-    return {
-        k: v
-        for k, v in (components or {}).items()
-        if k != "_error" and isinstance(v, dict)
-    }
 
 
 def get_programs_status() -> str:

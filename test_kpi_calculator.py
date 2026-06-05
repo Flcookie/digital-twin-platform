@@ -451,6 +451,21 @@ def test_looping_stage_repeated_load_creates_new_pass_sample():
     assert s4["wip_instantaneous"] == 0
 
 
+def test_trend_throughput_rates_only_at_departures():
+    kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
+    kpi.on_event(
+        {"time": "2026-03-12T18:00:00.000", "component_id": "corner2", "part_id": "p1", "activity": "START"}
+    )
+    kpi.on_event(
+        {"time": "2026-03-12T18:01:00.000", "component_id": "splitter5", "part_id": "p1", "activity": "FINISH"}
+    )
+    snap = kpi.get_snapshot()
+    thr = snap["trend_throughput_rates"]
+    assert len(thr) == 1
+    assert thr[0][1] == round(1 / 60.0, 5)
+    assert snap["trend_departure_history"][-1][1] == 1
+
+
 def test_trend_rate_history_uses_rolling_window_not_lifetime_cumulative():
     kpi = kpi_calculator.KpiCalculator(observation_time_mode="replay")
     base = "2026-03-12T18:00:00.000"
@@ -578,7 +593,7 @@ def test_block_event_transitions_busy_to_blocked():
     assert kpi._stn_state["station31"]["state"] == "BLOCKED"
 
 
-def test_scrap_lap_preserves_done_slots_in_display_grid():
+def test_scrap_lap_keeps_visited_slots_done_not_scrap_cells():
     import sys
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
@@ -594,7 +609,7 @@ def test_scrap_lap_preserves_done_slots_in_display_grid():
     rep = ptc.replay_part_trace(steps)
     dg = rep["display_grid"]
     assert dg.get("st11") == "DONE"
-    assert all(dg.get(s) != "SCRAP" for s in ptc.SLOTS)
+    assert dg.get("st21_22") == "NOT_DONE"
     lab, style = ptc.conformance_column_display(rep)
     assert style == "scrap"
     ic, body, _ = ptc._trace_conformance_span(
@@ -657,6 +672,45 @@ def test_scrap_on_non_splitter5_does_not_close_lap():
     rep = ptc.replay_part_trace(steps)
     assert rep["lap_open"] is True
     assert not rep["laps"]
+
+
+def test_flow_step_grid_separates_m4_m5_first_and_second_pass():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import flow_conformance_engine as fce
+
+    st = fce.new_flow_state()
+    for idx in (0, 1, 2, 3, 4):
+        st.reached[idx] = True
+    dg = fce.flow_state_to_step_display_grid(st)
+    assert dg[3] == "DONE"
+    assert dg[4] == "DONE"
+    assert dg[5] == "NOT_DONE"
+    assert dg[6] == "NOT_DONE"
+
+
+def test_factory_floor_event_cursor_no_dup_or_gap():
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "streamlit_app"))
+    import factory_floor_sim as ffs
+
+    events = [
+        {"timestamp": 1.0, "event_id": "a", "part_id": "p1", "component_id": "corner2", "activity": "START", "time": "t1"},
+        {"timestamp": 1.0, "event_id": "b", "part_id": "p1", "component_id": "corner2", "activity": "TRANSFER", "time": "t2"},
+        {"timestamp": 2.0, "event_id": "c", "part_id": "p1", "component_id": "station11", "activity": "LOAD", "time": "t3"},
+    ]
+    first = ffs.events_after_cursor(events, None, "")
+    assert len(first) == 3
+    sim = ffs.empty_sim_state()
+    ffs.replay_events(sim, first)
+    ts, eid = ffs.cursor_after_events(first)
+    second = ffs.events_after_cursor(events, ts, eid)
+    assert second == []
+    third = ffs.events_after_cursor(events, 1.0, "a")
+    assert len(third) == 2
+    assert third[0]["event_id"] == "b"
 
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))

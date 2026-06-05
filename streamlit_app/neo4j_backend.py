@@ -100,16 +100,24 @@ def close_driver():
             _driver = None
 
 
-def neo4j_status() -> dict:
+def neo4j_status(*, include_event_count: bool = True) -> dict:
     try:
         d = get_driver()
         with d.session() as s:
-            r = s.run("MATCH (e:Event) RETURN count(e) AS c")
-            rec = r.single()
-            n = rec["c"] if rec else 0
-        return {"connected": True, "event_count": n}
+            if include_event_count:
+                r = s.run("MATCH (e:Event) RETURN count(e) AS c")
+                rec = r.single()
+                n = rec["c"] if rec else 0
+                return {"connected": True, "event_count": n}
+            s.run("RETURN 1 AS ok").consume()
+        return {"connected": True}
     except Exception as e:
         return {"connected": False, "error": str(e)}
+
+
+def neo4j_ping() -> dict:
+    """Light connectivity probe for high-frequency UI refresh (no graph scan)."""
+    return neo4j_status(include_event_count=False)
 
 
 def _clear_all_app_graph_tx(tx):
@@ -433,6 +441,88 @@ def fetch_session_events_log_format(session_id: str) -> list[dict]:
                         "component_id": str(rec["component_id"] or "").strip(),
                         "part_id": str(rec["part_id"] or "").strip(),
                         "activity": str(rec["activity"] or "").strip(),
+                    }
+                )
+            return out
+    except Exception:
+        return []
+
+
+def fetch_session_events_for_floor(
+    session_id: str,
+    *,
+    since_ts: float | None = None,
+    since_event_id: str | None = None,
+    until_ts: float | None = None,
+) -> list[dict]:
+    """Ordered session events for factory floor ``process_event_state``.
+
+    Cursor ``(since_ts, since_event_id)`` is exclusive when both set.
+    ``until_ts`` is inclusive when set.
+    """
+    sid = (session_id or "").strip()
+    if not sid:
+        return []
+    try:
+        since = float(since_ts) if since_ts is not None else None
+    except (TypeError, ValueError):
+        since = None
+    try:
+        until = float(until_ts) if until_ts is not None else None
+    except (TypeError, ValueError):
+        until = None
+    since_id = (since_event_id or "").strip() or None
+    try:
+        d = get_driver()
+        with d.session() as s:
+            r = s.run(
+                """
+                MATCH (e:Event)-[:IN_SESSION]->(sess:Session {id: $sid})
+                OPTIONAL MATCH (e)-[:OCCURRED_AT]->(st:Station)
+                OPTIONAL MATCH (e)-[:OF_ACTIVITY]->(a:Activity)
+                OPTIONAL MATCH (e)-[:ACTS_ON]->(en:Entity)
+                WHERE ($until_ts IS NULL OR e.timestamp <= $until_ts)
+                  AND (
+                    $since_ts IS NULL
+                    OR e.timestamp > $since_ts
+                    OR (
+                      e.timestamp = $since_ts
+                      AND coalesce(e.id, '') > coalesce($since_id, '')
+                    )
+                  )
+                RETURN coalesce(
+                    e.time,
+                    toString(datetime({epochSeconds: toInteger(toFloat(e.timestamp))}))
+                  ) AS time,
+                  coalesce(e.component_id, st.sysId, '') AS component_id,
+                  coalesce(e.part_id, en.sysId, '') AS part_id,
+                  coalesce(e.activity, a.name, '') AS activity,
+                  e.timestamp AS ts,
+                  e.id AS event_id
+                ORDER BY e.timestamp ASC, e.id ASC
+                """,
+                sid=sid,
+                since_ts=since,
+                since_id=since_id,
+                until_ts=until,
+            )
+            out: list[dict] = []
+            for rec in r:
+                ts_raw = rec.get("ts")
+                if ts_raw is None:
+                    continue
+                try:
+                    ts_val = float(ts_raw)
+                except (TypeError, ValueError):
+                    continue
+                out.append(
+                    {
+                        "time": _event_time_to_kpi_iso(rec.get("time")),
+                        "component_id": str(rec.get("component_id") or "").strip(),
+                        "part_id": str(rec.get("part_id") or "").strip(),
+                        "activity": str(rec.get("activity") or "").strip(),
+                        "timestamp": ts_val,
+                        "event_id": str(rec.get("event_id") or ""),
                     }
                 )
             return out

@@ -331,6 +331,56 @@ def _build_static_traces() -> list:
     return traces
 
 
+_STATIC_TRACES_CACHE: list | None = None
+_MACHINE_LABEL_TRACES_CACHE: list | None = None
+_FIGURE_LAYOUT_CACHE: dict | None = None
+
+
+def _machine_label_traces() -> list:
+    out: list = []
+    for m in machines_conf:
+        out.append(
+            go.Scatter(
+                x=[m["x"]],
+                y=[MACH_Y],
+                mode="markers+text",
+                marker=dict(
+                    symbol="square",
+                    size=46,
+                    color=MACHINE_MARKER_COLOR,
+                    line=dict(color="#000000", width=2),
+                ),
+                text=[f"<b>{m['name']}</b>"],
+                textposition="top center",
+                textfont=dict(size=18, color="#1e293b"),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+    return out
+
+
+def _figure_layout(*, height: int) -> dict:
+    return dict(
+        xaxis=dict(visible=False, range=[-1, 31]),
+        yaxis=dict(visible=False, range=[-0.9, 5.0]),
+        height=height,
+        plot_bgcolor=BG,
+        paper_bgcolor=BG,
+        margin=dict(t=10, b=10, l=10, r=10),
+        showlegend=False,
+    )
+
+
+def _static_figure_data() -> list:
+    global _STATIC_TRACES_CACHE, _MACHINE_LABEL_TRACES_CACHE
+    if _STATIC_TRACES_CACHE is None:
+        _STATIC_TRACES_CACHE = list(_build_static_traces())
+    if _MACHINE_LABEL_TRACES_CACHE is None:
+        _MACHINE_LABEL_TRACES_CACHE = _machine_label_traces()
+    return list(_STATIC_TRACES_CACHE) + list(_MACHINE_LABEL_TRACES_CACHE)
+
+
 def part_markers_from_parts_last_step(parts: list[dict]) -> list[dict]:
     """与 ``code/monitoring.process_event_state`` 一致：用 **每条 part 最后一条工步** 的 ``(component_id, activity)`` 在 ``SEQ_MAP`` 上标位。
 
@@ -416,31 +466,17 @@ def _pallet_positions(part_markers: list[dict]) -> list[dict]:
 def build_factory_floor_figure(
     *,
     part_markers: list[dict] | None = None,
+    sim_state: dict | None = None,
     height: int = 440,
 ) -> go.Figure:
-    fig = go.Figure(data=list(_build_static_traces()))
+    fig = go.Figure(data=_static_figure_data())
 
-    for m in machines_conf:
-        fig.add_trace(
-            go.Scatter(
-                x=[m["x"]],
-                y=[MACH_Y],
-                mode="markers+text",
-                marker=dict(
-                    symbol="square",
-                    size=46,
-                    color=MACHINE_MARKER_COLOR,
-                    line=dict(color="#000000", width=2),
-                ),
-                text=[f"<b>{m['name']}</b>"],
-                textposition="top center",
-                textfont=dict(size=18, color="#1e293b"),
-                showlegend=False,
-                hoverinfo="skip",
-            )
-        )
+    if sim_state is not None:
+        import factory_floor_sim
 
-    pallets = _pallet_positions(part_markers or [])
+        pallets = factory_floor_sim.display_pallets_from_sim(sim_state)
+    else:
+        pallets = _pallet_positions(part_markers or [])
     if pallets:
         df_p = pd.DataFrame(pallets)
         fig.add_trace(
@@ -458,18 +494,13 @@ def build_factory_floor_figure(
                 textposition="middle center",
                 textfont=dict(size=10, color="white"),
                 customdata=df_p["hover"],
-                hovertemplate="Part: <b>%{customdata}</b><extra></extra>",
+                hovertemplate="<b>%{customdata}</b><extra></extra>",
                 showlegend=False,
             )
         )
 
-    fig.update_layout(
-        xaxis=dict(visible=False, range=[-1, 31]),
-        yaxis=dict(visible=False, range=[-0.9, 5.0]),
-        height=height,
-        plot_bgcolor=BG,
-        paper_bgcolor=BG,
-        margin=dict(t=10, b=10, l=10, r=10),
-        showlegend=False,
-    )
+    global _FIGURE_LAYOUT_CACHE
+    if _FIGURE_LAYOUT_CACHE is None or _FIGURE_LAYOUT_CACHE.get("height") != height:
+        _FIGURE_LAYOUT_CACHE = _figure_layout(height=height)
+    fig.update_layout(**_FIGURE_LAYOUT_CACHE)
     return fig

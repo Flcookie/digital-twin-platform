@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 # 与 code/ui_theme.py STATUS_COLORS / :root 对齐（仅 UI 展示）
@@ -32,7 +33,7 @@ _PLOT_FONT = '"Barlow Condensed", "Segoe UI", sans-serif'
 
 # 字号层级（布局.md · 可读性微调：Barlow Condensed 下同 px 略增一档）
 _FONT_L1_PX = 24   # section：System KPI
-_FONT_L2_PX = 22   # section：Trends / Stage / Station
+_FONT_L2_PX = 22   # section：Stage / Station
 _FONT_L3_PX = 15   # 指标名、工站名、按钮、表头
 _FONT_L4_SYSTEM_PX = 30  # System 双行卡主数值
 _FONT_L4_STAGE_PX = 28   # Stage 卡主数值
@@ -43,7 +44,7 @@ _FONT_CHART_AXIS_PX = 14  # Chart-A（趋势图刻度）
 _FONT_STAGE_NAME_PX = 16  # Stage 卡内阶段名（略大于 L3）
 
 # Trends 双图：等高、同 margin；仅使用 KPI 内 trend_* 序列（不用 MQTT 缓冲假滚动）
-_WIP_TREND_MAX_POINTS = 20
+_WIP_TREND_MAX_POINTS = 200
 _TREND_CHART_HEIGHT = 250
 _TREND_PLOTLY_CONTAINER_HEIGHT = 290
 _TREND_PAIR_MARGIN_WIP = dict(t=42, b=36, l=60, r=20)
@@ -53,21 +54,29 @@ _TREND_PLOT_CONFIG = {
     "scrollZoom": False,
     "doubleClick": False,
 }
-_CHART_TITLE_WIP = "WIP (pcs)"
-_CHART_TITLE_RATES = "Completion & Scrap (/s)"
+_CHART_TITLE_WIP = "WIP"
+_CHART_TITLE_RATES = "Completion & Scrap (/min)"
+_TREND_X_WINDOW_SEC = 300.0  # 最长 5 分钟；实际横轴按数据跨度收紧
+_TREND_X_EDGE_PAD_SEC = 2.0
 _TREND_ROLLING_DEPARTURES = 20
+_RATE_PER_SEC_TO_PCS_MIN = 60.0
 _RATE_TREND_Y_MAX_HISTORY = 20
 _RATE_TREND_Y_PAD = 1.2
 _TREND_WIP_EMPTY_Y_HI = 10
-_RATE_TREND_Y_EMPTY_HI = 0.05
+_RATE_TREND_COMP_EMPTY_HI = 3.0   # ≈ 0.05 /s
+_RATE_TREND_SCRAP_EMPTY_HI = 1.0
 _SESSION_RATE_Y_PEAKS = "_kpi_rate_trend_y_peak_history"
+_SESSION_SCRAP_Y_PEAKS = "_kpi_scrap_trend_y_peak_history"
 _SESSION_RATE_Y_SESSION = "_kpi_rate_trend_y_session_id"
 
 # System / Stage 指标数值色（同一语义同一色）
 _KPI_COLOR_WIP = "#0284c7"
 _KPI_COLOR_COMPLETION = "#16a34a"
 _KPI_COLOR_SCRAP = "#dc2626"
-_KPI_COLOR_LEAD = "#ea580c"
+# Lead / Flow Time：Tailwind yellow-500，与 WIP/Completion/Scrap 及 History 橙区分
+_KPI_COLOR_LEAD = "#eab308"
+# Stage Throughput：Tailwind indigo-500，产出速率（与 WIP 蓝、Completion 绿、Flow Time 黄区分）
+_KPI_COLOR_THROUGHPUT = "#6366f1"
 _KPI_COLOR_DEFAULT = "#1e293b"
 _STAGE_TITLE_COLOR = "#1e293b"
 _STAGE_BADGE_BG = "#f1f5f9"
@@ -100,10 +109,6 @@ _KPI_SECTION_TITLE_CSS = """
         font-size: """ + str(_FONT_L2_PX) + """px !important;
         border-left-color: #cbd5e1 !important;
     }
-    div[data-testid="stMainBlockContainer"] .kpi-sec-title--trends {
-        font-size: """ + str(_FONT_L2_PX) + """px !important;
-        border-left-color: #0284c7 !important;
-    }
     /* Stage | Station 并列：顶对齐，Stage 列随内容高度（不拉伸填空白） */
     div[data-testid="stMainBlockContainer"] div.st-key-kpi_stage_station_panel [data-testid="stHorizontalBlock"] {
         align-items: start !important;
@@ -114,7 +119,8 @@ _KPI_SECTION_TITLE_CSS = """
         border: 1px solid #e2e8f0 !important;
         border-radius: 12px !important;
         padding: 16px 20px !important;
-        margin-bottom: 20px !important;
+        margin-top: 12px !important;
+        margin-bottom: 0 !important;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
         overflow: hidden !important;
     }
@@ -149,6 +155,26 @@ _KPI_SECTION_TITLE_CSS = """
         div[data-testid="stMainBlockContainer"] .kpi-station-pills-grid {
             grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
         }
+    }
+    div[data-testid="stMainBlockContainer"] .kpi-station-state-box {
+        background: #ffffff !important;
+        border: 0.5px solid #e0e0e0 !important;
+        border-left: 3px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        padding: 14px 18px !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    }
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_station_fractions_wrap,
+    div[data-testid="stMainBlockContainer"] div.st-key-kpi_station_fractions_wrap [data-testid="stVerticalBlockBorderWrapper"] {
+        background: #ffffff !important;
+        border: 0.5px solid #e0e0e0 !important;
+        border-left: 3px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        padding: 14px 18px 8px 18px !important;
+        margin-bottom: 0 !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+        overflow: hidden !important;
     }
 </style>
 """
@@ -379,6 +405,10 @@ def render_station_card_grid(
     live_all = dict(k.get("station_live") or {})
     defaults = station_ids if station_ids is not None else default_station_ids()
     stations = sorted(set(defaults) | set(probs.keys()))
+    st.markdown(
+        "<hr style='border:none;border-top:1px solid #e2e8f0;margin:14px 0 10px 0;'>",
+        unsafe_allow_html=True,
+    )
     if not stations:
         st.markdown(
             _kpi_section_title_html("Station KPI", "station"),
@@ -426,8 +456,9 @@ def render_station_card_grid(
         )
     st.markdown(
         (
-            '<div style="margin-bottom:12px;">'
-            f'<div style="font-size:{_FONT_L3_PX}px;color:{_UI_THEME["text_dim"]};margin-bottom:4px;">'
+            '<div class="kpi-station-state-box">'
+            f'<div style="font-size:{_FONT_STAGE_NAME_PX}px;color:{_STAGE_TITLE_COLOR};'
+            'margin-bottom:12px;font-weight:700;">'
             "State"
             "</div>"
             '<div class="kpi-station-pills-grid">'
@@ -438,7 +469,7 @@ def render_station_card_grid(
         unsafe_allow_html=True,
     )
 
-    # 2x2 station comparison bars (Busy / Fail / Blocked / Idle)
+    # 2x2 station comparison bars (Idle / Busy / Blocked / Failed)
     state_probs = dict(k.get("state_probability") or {})
     labels = [station_kpi_display_name(s) for s in station_order]
     busy_vals = [float((state_probs.get(s) or {}).get("busy", 0) or 0) * 100 for s in station_order]
@@ -502,51 +533,52 @@ def render_station_card_grid(
         )
         return fig
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    row1_col1, row1_col2 = st.columns(2)
-    row2_col1, row2_col2 = st.columns(2)
-    with row1_col1:
-        st.plotly_chart(
-            _make_station_bar(
-                "Busy fraction (%)", busy_vals, _STATION_BUSY_COLOR, "Busy"
-            ),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_station_busy_bar",
-        )
-    with row1_col2:
-        st.plotly_chart(
-            _make_station_bar(
-                "Failed fraction (%)",
-                fail_vals,
-                _STATION_FAIL_COLOR,
-                "Failed",
-            ),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_station_fail_bar",
-        )
-    with row2_col1:
-        st.plotly_chart(
-            _make_station_bar(
-                "Blocked fraction (%)",
-                blocked_vals,
-                _STATION_BLOCKED_COLOR,
-                "Blocked",
-            ),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_station_blocked_bar",
-        )
-    with row2_col2:
-        st.plotly_chart(
-            _make_station_bar(
-                "Idle fraction (%)", idle_vals, _STATION_IDLE_COLOR, "Idle"
-            ),
-            use_container_width=True,
-            config={"displayModeBar": False},
-            key="kpi_station_idle_bar",
-        )
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    with st.container(key="kpi_station_fractions_wrap"):
+        row1_col1, row1_col2 = st.columns(2)
+        row2_col1, row2_col2 = st.columns(2)
+        with row1_col1:
+            st.plotly_chart(
+                _make_station_bar(
+                    "Idle fraction (%)", idle_vals, _STATION_IDLE_COLOR, "Idle"
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_station_idle_bar",
+            )
+        with row1_col2:
+            st.plotly_chart(
+                _make_station_bar(
+                    "Busy fraction (%)", busy_vals, _STATION_BUSY_COLOR, "Busy"
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_station_busy_bar",
+            )
+        with row2_col1:
+            st.plotly_chart(
+                _make_station_bar(
+                    "Failed fraction (%)",
+                    fail_vals,
+                    _STATION_FAIL_COLOR,
+                    "Failed",
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_station_fail_bar",
+            )
+        with row2_col2:
+            st.plotly_chart(
+                _make_station_bar(
+                    "Blocked fraction (%)",
+                    blocked_vals,
+                    _STATION_BLOCKED_COLOR,
+                    "Blocked",
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key="kpi_station_blocked_bar",
+            )
 
 
 def _system_values(kpi: dict) -> dict[str, float | int]:
@@ -667,8 +699,10 @@ def render_system_kpi_group(
             '</div>'
         )
 
-    completion_rate_text = "{:.4f}".format(float(v["cr"]))
-    scrap_rate_text = "{:.4f}".format(float(v["n_scrap"]) / max(float(v["obs"]), 0.001))
+    completion_rate_text = "{:.3f}".format(float(v["cr"]) * 60.0)
+    scrap_rate_text = "{:.3f}".format(
+        (float(v["n_scrap"]) / max(float(v["obs"]), 0.001)) * 60.0
+    )
     lead_fin_text = "{:.1f}".format(float(v["ct_fin"]))
     lead_all_text = "{:.1f}".format(float(v["ct_all"]))
 
@@ -676,10 +710,10 @@ def render_system_kpi_group(
     with col1:
         st.markdown(
             _pair_card_html(
-                "WIP (pcs)",
+                "WIP",
                 str(v["wip"]),
                 _KPI_COLOR_WIP,
-                "AVG WIP (pcs)",
+                "AVG WIP",
                 "{:.3f}".format(v["awip"]),
                 _KPI_COLOR_WIP,
             ),
@@ -691,7 +725,7 @@ def render_system_kpi_group(
                 "Completions",
                 str(v["n_comp"]),
                 _KPI_COLOR_COMPLETION,
-                "Completion Rate (/s)",
+                "Completion Rate (/min)",
                 completion_rate_text,
                 _KPI_COLOR_COMPLETION,
             ),
@@ -703,7 +737,7 @@ def render_system_kpi_group(
                 "Scraps",
                 str(v["n_scrap"]),
                 _KPI_COLOR_SCRAP,
-                "Scrap Rate (/s)",
+                "Scrap Rate (/min)",
                 scrap_rate_text,
                 _KPI_COLOR_SCRAP,
             ),
@@ -712,15 +746,16 @@ def render_system_kpi_group(
     with col4:
         st.markdown(
             _pair_card_html(
-                "Avg Lead Time (Finished)",
+                "Avg Lead Time (Finished) (s)",
                 lead_fin_text,
                 _KPI_COLOR_LEAD,
-                "Avg Lead Time (Finished+Scrapped)",
+                "Avg Lead Time (Finished+Scrapped) (s)",
                 lead_all_text,
                 _KPI_COLOR_LEAD,
             ),
             unsafe_allow_html=True,
         )
+    render_kpi_trends_block(kpi)
 
 
 def render_stage_kpi_group(kpi: dict | None) -> None:
@@ -753,7 +788,10 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
         wip = str(wip_v)
         dep = str(dep_v)
         l3, l4, l4t, l5n = _FONT_L3_PX, _FONT_L4_STAGE_PX, _FONT_L4_STAGE_THR_PX, _FONT_STAGE_NAME_PX
-        c_wip, c_lead, c_def = _KPI_COLOR_WIP, _KPI_COLOR_LEAD, _KPI_COLOR_DEFAULT
+        c_wip = _KPI_COLOR_WIP
+        c_lead = _KPI_COLOR_LEAD
+        c_thr = _KPI_COLOR_THROUGHPUT
+        c_dep = _KPI_COLOR_COMPLETION
         c_title, c_badge_bg, c_badge_txt = _STAGE_TITLE_COLOR, _STAGE_BADGE_BG, _STAGE_BADGE_TEXT
         c_accent = _STAGE_CARD_ACCENT
         return f"""
@@ -769,24 +807,24 @@ def render_stage_kpi_group(kpi: dict | None) -> None:
   </div>
   <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;">
     <div>
-      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">WIP (pcs)</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">WIP</div>
       <div style="font-size:{l4}px;font-weight:700;color:{c_wip};">{wip}</div>
     </div>
     <div>
-      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">AVG WIP (pcs)</div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">AVG WIP</div>
       <div style="font-size:{l4}px;font-weight:700;color:{c_wip};">{awip}</div>
+    </div>
+    <div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Departures</div>
+      <div style="font-size:{l4}px;font-weight:700;color:{c_dep};">{dep}</div>
+    </div>
+    <div>
+      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Throughput (/s)</div>
+      <div style="font-size:{l4t}px;font-weight:700;color:{c_thr};">{thr}</div>
     </div>
     <div>
       <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Avg Flow Time (s)</div>
       <div style="font-size:{l4}px;font-weight:700;color:{c_lead};">{ft}</div>
-    </div>
-    <div>
-      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Throughput (/s)</div>
-      <div style="font-size:{l4t}px;font-weight:700;color:{c_def};">{thr}</div>
-    </div>
-    <div>
-      <div style="font-size:{l3}px;color:#64748b;margin-bottom:3px;font-weight:600;">Departures</div>
-      <div style="font-size:{l4}px;font-weight:700;color:{c_def};">{dep}</div>
     </div>
   </div>
 </div>
@@ -874,23 +912,17 @@ def _trend_apply_grid(fig: go.Figure) -> None:
     )
 
 
-def _trend_pair_layout_extras(*, margin_left: int = 60) -> dict[str, Any]:
-    """Trends 双图共用：等高、margin 对齐、图例右上。"""
-    base = _trend_layout_common(showlegend=True)
+def _trend_pair_layout_extras(
+    *, margin_left: int = 60, margin_right: int | None = None
+) -> dict[str, Any]:
+    """Trends 双图共用：等高、margin 对齐；图例隐藏（hover 已覆盖）。"""
+    base = _trend_layout_common(showlegend=False)
     base["height"] = _TREND_CHART_HEIGHT
     margin = dict(_TREND_PAIR_MARGIN_WIP if margin_left >= 60 else _TREND_PAIR_MARGIN_RATE)
     margin["l"] = margin_left
+    if margin_right is not None:
+        margin["r"] = margin_right
     base["margin"] = margin
-    base["legend"] = dict(
-        orientation="h",
-        x=1.0,
-        y=1.02,
-        xanchor="right",
-        yanchor="bottom",
-        bgcolor="rgba(255,255,255,0)",
-        borderwidth=0,
-        font=dict(size=_FONT_CHART_AXIS_PX, color="#64748b", family=_PLOT_FONT),
-    )
     return base
 
 
@@ -900,7 +932,127 @@ def _trend_empty_x_range() -> tuple[datetime.datetime, datetime.datetime]:
     return start, end
 
 
-def _trend_pair_apply_xaxis(fig: go.Figure, *, empty: bool) -> None:
+def _trend_window_end_ts(kpi: dict) -> float | None:
+    end: float | None = None
+    chart_ts = kpi.get("chart_time_unix")
+    if chart_ts is not None:
+        try:
+            end = float(chart_ts)
+        except (TypeError, ValueError):
+            pass
+    for key in ("trend_sys_wip_history", "trend_departure_history"):
+        for row in kpi.get(key) or []:
+            if isinstance(row, (list, tuple)) and row:
+                try:
+                    ts = float(row[0])
+                except (TypeError, ValueError):
+                    continue
+                end = ts if end is None else max(end, ts)
+    return end
+
+
+def _trend_max_window_start_ts(kpi: dict) -> float | None:
+    end = _trend_window_end_ts(kpi)
+    if end is None:
+        return None
+    return end - _TREND_X_WINDOW_SEC
+
+
+def _filter_wip_by_max_window(
+    series: list[tuple[float, int]], kpi: dict
+) -> list[tuple[float, int]]:
+    start = _trend_max_window_start_ts(kpi)
+    if start is None:
+        return series
+    return [(ts, w) for ts, w in series if ts >= start]
+
+
+def _filter_rates_by_max_window(
+    series: list[tuple[float, float, float]], kpi: dict
+) -> list[tuple[float, float, float]]:
+    start = _trend_max_window_start_ts(kpi)
+    if start is None:
+        return series
+    return [row for row in series if row[0] >= start]
+
+
+def _trend_x_range_from_series(
+    kpi: dict,
+    wip_hist: list[tuple[float, int]],
+    rate_hist: list[tuple[float, float, float]],
+) -> tuple[datetime.datetime, datetime.datetime] | None:
+    """横轴贴合可见数据；跨度 < 5min 时左端从首点开始，避免左侧空白。"""
+    end_ts = _trend_window_end_ts(kpi)
+    if end_ts is None:
+        return None
+    ts_all: list[float] = [t for t, _ in wip_hist] + [t for t, _, _ in rate_hist]
+    if ts_all:
+        data_min = min(ts_all)
+        data_max = max(ts_all)
+        end_ts = max(end_ts, data_max)
+        span = end_ts - data_min
+        if span > _TREND_X_WINDOW_SEC:
+            start_ts = end_ts - _TREND_X_WINDOW_SEC
+        else:
+            start_ts = data_min - _TREND_X_EDGE_PAD_SEC
+    else:
+        start_ts = end_ts - min(60.0, _TREND_X_WINDOW_SEC)
+    return (
+        datetime.datetime.fromtimestamp(start_ts),
+        datetime.datetime.fromtimestamp(end_ts + _TREND_X_EDGE_PAD_SEC),
+    )
+
+
+def _ts_from_x_range(
+    x_range: tuple[datetime.datetime, datetime.datetime] | None,
+) -> tuple[float | None, float | None]:
+    if x_range is None:
+        return None, None
+    return x_range[0].timestamp(), x_range[1].timestamp()
+
+
+def _extend_wip_hist_to_x_range(
+    hist: list[tuple[float, int]],
+    x_range: tuple[datetime.datetime, datetime.datetime] | None,
+) -> list[tuple[float, int]]:
+    if not hist or x_range is None:
+        return hist
+    x0, x1 = _ts_from_x_range(x_range)
+    if x0 is None or x1 is None:
+        return hist
+    out = list(hist)
+    if out[0][0] > x0:
+        out.insert(0, (x0, out[0][1]))
+    if out[-1][0] < x1:
+        out.append((x1, out[-1][1]))
+    return out
+
+
+def _extend_rate_hist_to_x_range(
+    hist: list[tuple[float, float, float]],
+    x_range: tuple[datetime.datetime, datetime.datetime] | None,
+) -> list[tuple[float, float, float]]:
+    if x_range is None:
+        return hist
+    x0, x1 = _ts_from_x_range(x_range)
+    if x0 is None or x1 is None:
+        return hist
+    if not hist:
+        return [(x0, 0.0, 0.0), (x1, 0.0, 0.0)]
+    out = list(hist)
+    if out[0][0] > x0:
+        out.insert(0, (x0, 0.0, 0.0))
+    if out[-1][0] < x1:
+        out.append((x1, out[-1][1], out[-1][2]))
+    return out
+
+
+def _trend_pair_apply_xaxis(
+    fig: go.Figure,
+    *,
+    empty: bool,
+    x_range: tuple[datetime.datetime, datetime.datetime] | None = None,
+) -> None:
     kw: dict[str, Any] = dict(
         title=dict(text=""),
         showticklabels=True,
@@ -908,7 +1060,9 @@ def _trend_pair_apply_xaxis(fig: go.Figure, *, empty: bool) -> None:
         nticks=4,
         tickangle=0,
     )
-    if empty:
+    if x_range is not None:
+        kw["range"] = list(x_range)
+    elif empty:
         x0, x1 = _trend_empty_x_range()
         kw["range"] = [x0, x1]
     fig.update_xaxes(**kw)
@@ -933,19 +1087,22 @@ def _wip_trend_series_average(hist: list[tuple[float, int]]) -> float:
 
 
 def _wip_trend_y_range(ys: list[int], avg_w: float, *, pad: float = 2.0) -> list[float]:
-    """dataMin - pad .. dataMax + pad (WIP 不强制从 0 起）。"""
+    """0 .. dataMax + pad（论文/分析口径从 0 起）。"""
     vals = [float(v) for v in ys] + [float(avg_w)]
     if not vals:
         return [0.0, 4.0]
-    lo = min(vals) - pad
     hi = max(vals) + pad
-    if hi <= lo:
-        hi = lo + 4.0
-    return [lo, hi]
+    if hi <= 0:
+        hi = 4.0
+    return [0.0, hi]
 
 
 def _wip_trend_apply_axes(
-    fig: go.Figure, *, empty: bool, y_range: list[float] | None = None
+    fig: go.Figure,
+    *,
+    empty: bool,
+    y_range: list[float] | None = None,
+    x_range: tuple[datetime.datetime, datetime.datetime] | None = None,
 ) -> None:
     _trend_apply_grid(fig)
     if empty:
@@ -956,7 +1113,7 @@ def _wip_trend_apply_axes(
             nticks=5,
             tickformat="d",
         )
-        _trend_pair_apply_xaxis(fig, empty=True)
+        _trend_pair_apply_xaxis(fig, empty=x_range is None, x_range=x_range)
         return
     fig.update_yaxes(
         title=dict(text=""),
@@ -965,12 +1122,26 @@ def _wip_trend_apply_axes(
         nticks=5,
         tickformat="d",
     )
-    _trend_pair_apply_xaxis(fig, empty=False)
+    _trend_pair_apply_xaxis(fig, empty=False, x_range=x_range)
 
 
-def _fig_wip_over_time(kpi: dict) -> go.Figure:
-    hist = _parse_wip_trend_hist(kpi)
-    avg_w = _wip_trend_series_average(hist)
+def _wip_trend_hist_for_chart(kpi: dict) -> list[tuple[float, int]]:
+    return _filter_wip_by_max_window(_parse_wip_trend_hist(kpi), kpi)
+
+
+def _rate_trend_hist_for_chart(kpi: dict) -> list[tuple[float, float, float]]:
+    return _filter_rates_by_max_window(_trend_rate_points(kpi), kpi)
+
+
+def _fig_wip_over_time(
+    kpi: dict,
+    *,
+    x_range: tuple[datetime.datetime, datetime.datetime] | None = None,
+    hist: list[tuple[float, int]] | None = None,
+) -> go.Figure:
+    raw_hist = hist if hist is not None else _wip_trend_hist_for_chart(kpi)
+    avg_w = _wip_trend_series_average(raw_hist)
+    hist = _extend_wip_hist_to_x_range(raw_hist, x_range)
     fig = go.Figure()
     if not hist:
         fig.update_layout(
@@ -1000,7 +1171,7 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
                 hoverinfo="skip",
             )
         )
-        _wip_trend_apply_axes(fig, empty=True)
+        _wip_trend_apply_axes(fig, empty=True, x_range=x_range)
         return fig
     n = len(hist)
     ys = [w for _, w in hist]
@@ -1008,7 +1179,6 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
         datetime.datetime.fromtimestamp(max(0.0, min(1e12, float(ts))))
         for ts, _ in hist
     ]
-    sample_idx = list(range(1, n + 1))
     wip_c = _KPI_COLOR_WIP
     mk = dict(
         size=3,
@@ -1023,13 +1193,11 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
             mode="lines+markers",
             name="WIP",
             line=dict(color=wip_c, width=2.5),
+            line_shape="hv",
             marker=mk,
             selected=dict(marker=dict(size=10, color=wip_c)),
             unselected=dict(marker=dict(size=3, opacity=1.0)),
-            customdata=sample_idx,
-            hovertemplate=(
-                "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>WIP: %{y}<extra></extra>"
-            ),
+            hovertemplate="WIP: %{y}<extra></extra>",
         )
     )
     fig.add_trace(
@@ -1039,9 +1207,7 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
             mode="lines",
             name="AVG WIP (window)",
             line=dict(color=_UI_THEME["orange"], width=2, dash="6px,3px"),
-            hovertemplate=(
-                "AVG WIP (window): %{y:.2f}<extra></extra>"
-            ),
+            hovertemplate="AVG WIP (window): %{y:.2f}<extra></extra>",
         )
     )
     fig.update_layout(
@@ -1049,7 +1215,10 @@ def _fig_wip_over_time(kpi: dict) -> go.Figure:
         title=_trend_chart_title(_CHART_TITLE_WIP),
     )
     _wip_trend_apply_axes(
-        fig, empty=False, y_range=_wip_trend_y_range(ys, avg_w)
+        fig,
+        empty=False,
+        y_range=_wip_trend_y_range(ys, avg_w),
+        x_range=x_range,
     )
     return fig
 
@@ -1069,88 +1238,165 @@ def _parse_wip_trend_hist(kpi: dict) -> list[tuple[float, int]]:
     return hist
 
 
-def _trend_rate_points(kpi: dict) -> list[tuple[float, float, float]]:
-    """(unix_ts, completion_rate_/s, scrap_rate_/s) — rolling window over trend_departure_history."""
-    hist: list[tuple[float, int, int]] = []
+def _parse_throughput_trend_hist(kpi: dict) -> list[tuple[float, float, float]]:
+    raw = kpi.get("trend_throughput_rates")
+    hist: list[tuple[float, float, float]] = []
+    if isinstance(raw, list):
+        for row in raw:
+            if isinstance(row, (list, tuple)) and len(row) >= 3:
+                try:
+                    hist.append((float(row[0]), float(row[1]), float(row[2])))
+                except (TypeError, ValueError):
+                    pass
+    if len(hist) > _WIP_TREND_MAX_POINTS:
+        hist = hist[-_WIP_TREND_MAX_POINTS:]
+    return hist
+
+
+def _trend_rate_points_from_departures(kpi: dict) -> list[tuple[float, float, float]]:
+    """Fallback when snapshot has no trend_throughput_rates (older main_service)."""
+    dep_hist: list[tuple[float, int, int]] = []
     raw = kpi.get("trend_departure_history")
     if isinstance(raw, list):
         for row in raw:
             if isinstance(row, (list, tuple)) and len(row) >= 3:
                 try:
-                    hist.append((float(row[0]), int(row[1]), int(row[2])))
+                    dep_hist.append((float(row[0]), int(row[1]), int(row[2])))
                 except (TypeError, ValueError):
                     pass
+    dep_indices: list[int] = []
+    for i in range(1, len(dep_hist)):
+        p_nc, p_ns = dep_hist[i - 1][1], dep_hist[i - 1][2]
+        if dep_hist[i][1] != p_nc or dep_hist[i][2] != p_ns:
+            dep_indices.append(i)
     out: list[tuple[float, float, float]] = []
-    for i in range(len(hist)):
-        ts, nc, ns = hist[i]
-        j = max(0, i - _TREND_ROLLING_DEPARTURES)
-        t0, c0, s0 = hist[j]
+    for di in range(len(dep_indices)):
+        idx = dep_indices[di]
+        ts, nc, ns = dep_hist[idx]
+        j = di
+        dep_in_window = 0
+        while j > 0 and dep_in_window < _TREND_ROLLING_DEPARTURES:
+            j -= 1
+            p_idx, n_idx = dep_indices[j], dep_indices[j + 1]
+            dep_in_window += (dep_hist[n_idx][1] - dep_hist[p_idx][1]) + (
+                dep_hist[n_idx][2] - dep_hist[p_idx][2]
+            )
+        if j == 0:
+            base_idx = dep_indices[0] - 1
+            t0, c0, s0 = dep_hist[base_idx] if base_idx >= 0 else dep_hist[0]
+        else:
+            t0, c0, s0 = dep_hist[dep_indices[j]]
         dt = ts - t0
         if dt <= 0:
             continue
-        out.append((ts, round((nc - c0) / dt, 5), round((ns - s0) / dt, 5)))
+        out.append(
+            (
+                ts,
+                round((nc - c0) / dt, 5),
+                round((ns - s0) / dt, 5),
+            )
+        )
     if len(out) > _WIP_TREND_MAX_POINTS:
         out = out[-_WIP_TREND_MAX_POINTS:]
     return out
 
 
+def _trend_rate_points(kpi: dict) -> list[tuple[float, float, float]]:
+    """(unix_ts, completion_rate_/s, scrap_rate_/s) at departures only."""
+    out = _parse_throughput_trend_hist(kpi)
+    if not out:
+        out = _trend_rate_points_from_departures(kpi)
+    if not out:
+        wip = _wip_trend_hist_for_chart(kpi)
+        if wip:
+            out = [(ts, 0.0, 0.0) for ts, _ in wip]
+    return out
+
+
+def _rate_per_sec_to_pcs_min(rate_per_sec: float) -> float:
+    return round(float(rate_per_sec) * _RATE_PER_SEC_TO_PCS_MIN, 4)
+
+
 def _rate_trend_reset_y_peak_history_if_session(kpi: dict) -> None:
-    sid = str(kpi.get("session_id") or "")
+    sid = str(kpi.get("observation_start_ts") or kpi.get("session_id") or "")
     prev = st.session_state.get(_SESSION_RATE_Y_SESSION)
     if prev != sid:
         st.session_state[_SESSION_RATE_Y_SESSION] = sid
         st.session_state[_SESSION_RATE_Y_PEAKS] = []
+        st.session_state[_SESSION_SCRAP_Y_PEAKS] = []
 
 
-def _rate_trend_y_range(
-    kpi: dict, comp_y: list[float], scrap_y: list[float]
+def _rate_axis_y_range(
+    kpi: dict,
+    values: list[float],
+    *,
+    peaks_key: str,
+    empty_hi: float,
+    min_hi: float = 0.0,
 ) -> list[float]:
-    """[0, max_recent * 1.2] — 跨刷新保留峰值上限，避免 autorange 跳轴。"""
+    """单轴 [0, peak*pad]；跨刷新保留峰值上限。"""
     _rate_trend_reset_y_peak_history_if_session(kpi)
     frame_max = 0.0
-    for v in comp_y + scrap_y:
+    for v in values:
         try:
             frame_max = max(frame_max, float(v))
         except (TypeError, ValueError):
             pass
-    peaks: list[float] = list(st.session_state.get(_SESSION_RATE_Y_PEAKS) or [])
+    peaks: list[float] = list(st.session_state.get(peaks_key) or [])
     peaks.append(frame_max)
     if len(peaks) > _RATE_TREND_Y_MAX_HISTORY:
         peaks = peaks[-_RATE_TREND_Y_MAX_HISTORY:]
-    st.session_state[_SESSION_RATE_Y_PEAKS] = peaks
+    st.session_state[peaks_key] = peaks
     peak = max(peaks) if peaks else 0.0
     hi = peak * _RATE_TREND_Y_PAD
     if hi <= 0:
-        hi = _RATE_TREND_Y_EMPTY_HI
+        hi = empty_hi
+    hi = max(hi, min_hi)
     return [0.0, hi]
 
 
-def _rate_trend_apply_axes(
-    fig: go.Figure, *, empty: bool, y_range: list[float] | None = None
+def _rate_trend_apply_dual_axes(
+    fig: go.Figure,
+    *,
+    empty: bool,
+    comp_y_range: list[float],
+    scrap_y_range: list[float],
+    x_range: tuple[datetime.datetime, datetime.datetime] | None = None,
 ) -> None:
     _trend_apply_grid(fig)
-    if empty:
-        fig.update_yaxes(
-            title=dict(text=""),
-            range=[0.0, _RATE_TREND_Y_EMPTY_HI],
-            autorange=False,
-            nticks=6,
-        )
-    else:
-        fig.update_yaxes(
-            title=dict(text=""),
-            range=y_range,
-            autorange=False,
-        )
-    _trend_pair_apply_xaxis(fig, empty=empty)
+    fig.update_yaxes(
+        title=dict(text="", font=dict(size=_FONT_CHART_AXIS_PX)),
+        range=comp_y_range,
+        autorange=False,
+        nticks=5,
+        secondary_y=False,
+    )
+    fig.update_yaxes(
+        title=dict(text="", font=dict(size=_FONT_CHART_AXIS_PX)),
+        range=scrap_y_range,
+        autorange=False,
+        nticks=5,
+        secondary_y=True,
+        showgrid=False,
+    )
+    _trend_pair_apply_xaxis(fig, empty=empty and x_range is None, x_range=x_range)
 
 
-def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
-    hist = _trend_rate_points(kpi)
-    fig = go.Figure()
+def _fig_completion_scrap_over_time(
+    kpi: dict,
+    *,
+    x_range: tuple[datetime.datetime, datetime.datetime] | None = None,
+    hist: list[tuple[float, float, float]] | None = None,
+) -> go.Figure:
+    hist = _extend_rate_hist_to_x_range(
+        hist if hist is not None else _rate_trend_hist_for_chart(kpi),
+        x_range,
+    )
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    layout_kw = _trend_pair_layout_extras(margin_left=48, margin_right=48)
     if not hist:
         fig.update_layout(
-            **_trend_pair_layout_extras(margin_left=40),
+            **layout_kw,
             title=_trend_chart_title(_CHART_TITLE_RATES),
         )
         _stub_t = datetime.datetime.now()
@@ -1159,35 +1405,41 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
                 x=[_stub_t],
                 y=[0],
                 mode="lines+markers",
-                name="Completion Rate (/s)",
+                name="Completion",
                 line=dict(color=_KPI_COLOR_COMPLETION, width=2.5),
                 marker=dict(size=3, color=_KPI_COLOR_COMPLETION, opacity=0),
                 opacity=0,
                 hoverinfo="skip",
-            )
+            ),
+            secondary_y=False,
         )
         fig.add_trace(
             go.Scatter(
                 x=[_stub_t],
                 y=[0],
                 mode="lines+markers",
-                name="Scrap Rate (/s)",
+                name="Scrap",
                 line=dict(color=_KPI_COLOR_SCRAP, width=2.5),
                 marker=dict(size=3, color=_KPI_COLOR_SCRAP, opacity=0),
                 opacity=0,
                 hoverinfo="skip",
-            )
+            ),
+            secondary_y=True,
         )
-        _rate_trend_apply_axes(fig, empty=True)
+        _rate_trend_apply_dual_axes(
+            fig,
+            empty=True,
+            comp_y_range=[0.0, _RATE_TREND_COMP_EMPTY_HI],
+            scrap_y_range=[0.0, _RATE_TREND_SCRAP_EMPTY_HI],
+            x_range=x_range,
+        )
         return fig
     x_dt = [
         datetime.datetime.fromtimestamp(max(0.0, min(1e12, float(ts))))
         for ts, _, _ in hist
     ]
-    comp_y = [c for _, c, _ in hist]
-    scrap_y = [s for _, _, s in hist]
-    n = len(hist)
-    sample_idx = list(range(1, n + 1))
+    comp_y = [_rate_per_sec_to_pcs_min(c) for _, c, _ in hist]
+    scrap_y = [_rate_per_sec_to_pcs_min(s) for _, _, s in hist]
     comp_c = _KPI_COLOR_COMPLETION
     scrap_c = _KPI_COLOR_SCRAP
     comp_mk = dict(
@@ -1207,57 +1459,65 @@ def _fig_completion_scrap_over_time(kpi: dict) -> go.Figure:
             x=x_dt,
             y=comp_y,
             mode="lines+markers",
-            name="Completion Rate (/s)",
+            name="Completion",
             line=dict(color=comp_c, width=2.5),
             marker=comp_mk,
             selected=dict(marker=dict(size=10, color=comp_c)),
             unselected=dict(marker=dict(size=3, opacity=1.0)),
-            customdata=sample_idx,
-            hovertemplate=(
-                "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Completion Rate: %{y:.5g} /s (rolling window)<extra></extra>"
-            ),
-        )
+            hovertemplate="Completion: %{y:.3g} pcs/min<extra></extra>",
+        ),
+        secondary_y=False,
     )
     fig.add_trace(
         go.Scatter(
             x=x_dt,
             y=scrap_y,
             mode="lines+markers",
-            name="Scrap Rate (/s)",
+            name="Scrap",
             line=dict(color=scrap_c, width=2.5),
             marker=scrap_mk,
             selected=dict(marker=dict(size=10, color=scrap_c)),
             unselected=dict(marker=dict(size=3, opacity=1.0)),
-            customdata=sample_idx,
-            hovertemplate=(
-                "<b>Sample %{customdata}</b><br>Time: %{x|%H:%M:%S}<br>"
-                "Scrap Rate: %{y:.5g} /s (rolling window)<extra></extra>"
-            ),
-        )
+            hovertemplate="Scrap: %{y:.3g} pcs/min<extra></extra>",
+        ),
+        secondary_y=True,
     )
     fig.update_layout(
-        **_trend_pair_layout_extras(margin_left=40),
+        **layout_kw,
         title=_trend_chart_title(_CHART_TITLE_RATES),
     )
-    _rate_trend_apply_axes(
-        fig, empty=False, y_range=_rate_trend_y_range(kpi, comp_y, scrap_y)
+    _rate_trend_apply_dual_axes(
+        fig,
+        empty=False,
+        comp_y_range=_rate_axis_y_range(
+            kpi,
+            comp_y,
+            peaks_key=_SESSION_RATE_Y_PEAKS,
+            empty_hi=_RATE_TREND_COMP_EMPTY_HI,
+        ),
+        scrap_y_range=_rate_axis_y_range(
+            kpi,
+            scrap_y,
+            peaks_key=_SESSION_SCRAP_Y_PEAKS,
+            empty_hi=_RATE_TREND_SCRAP_EMPTY_HI,
+            min_hi=0.5,
+        ),
+        x_range=x_range,
     )
     return fig
 
 
 def render_kpi_trends_block(kpi: dict | None) -> None:
-    """Trends：WIP 时序 / Completion & Scrap（两图并排、等高）。"""
+    """System KPI 下 WIP / Completion & Scrap 双图（无独立 Trends 区块标题）。"""
     k = dict(kpi or {})
-    st.markdown(
-        _kpi_section_title_html("Trends", "trends"),
-        unsafe_allow_html=True,
-    )
+    wip_hist = _wip_trend_hist_for_chart(k)
+    rate_hist = _rate_trend_hist_for_chart(k)
+    x_range = _trend_x_range_from_series(k, wip_hist, rate_hist)
     with st.container(key="kpi_trends_wrap"):
         c1, c2 = st.columns(2, gap="small")
         with c1:
             st.plotly_chart(
-                _fig_wip_over_time(k),
+                _fig_wip_over_time(k, x_range=x_range, hist=wip_hist),
                 use_container_width=True,
                 height=_TREND_PLOTLY_CONTAINER_HEIGHT,
                 config=_TREND_PLOT_CONFIG,
@@ -1265,7 +1525,7 @@ def render_kpi_trends_block(kpi: dict | None) -> None:
             )
         with c2:
             st.plotly_chart(
-                _fig_completion_scrap_over_time(k),
+                _fig_completion_scrap_over_time(k, x_range=x_range, hist=rate_hist),
                 use_container_width=True,
                 height=_TREND_PLOTLY_CONTAINER_HEIGHT,
                 config=_TREND_PLOT_CONFIG,
@@ -1293,14 +1553,8 @@ def render_kpi_dashboard(
     st.markdown(_KPI_SECTION_TITLE_CSS, unsafe_allow_html=True)
     with st.container(border=True, key="kpi_all_panel"):
         render_system_kpi_group(kpi, age_sec=age_sec)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         st.markdown(
-            "<hr style='border:none;border-top:1px solid #e2e8f0;margin:6px 0 10px 0;'>",
-            unsafe_allow_html=True,
-        )
-        render_kpi_trends_block(kpi)
-        st.markdown(
-            "<hr style='border:none;border-top:1px solid #e2e8f0;margin:10px 0 10px 0;'>",
+            "<hr style='border:none;border-top:1px solid #e2e8f0;margin:14px 0 10px 0;'>",
             unsafe_allow_html=True,
         )
         with st.container(key="kpi_stage_station_panel"):

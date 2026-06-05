@@ -133,6 +133,56 @@ def _rolling_departure_rates(
     return out
 
 
+def _rolling_departure_throughput_rates(
+    rate_history: list[tuple[float, int, int]],
+    *,
+    window: int = TREND_ROLLING_DEPARTURES,
+) -> list[tuple[float, float, float]]:
+    """(ts, completions/s, scraps/s) at each departure; window = last N departures by count."""
+    if not rate_history or window <= 0:
+        return []
+    dep_indices: list[int] = []
+    for i in range(1, len(rate_history)):
+        ts, nc, ns = rate_history[i]
+        p_nc, p_ns = rate_history[i - 1][1], rate_history[i - 1][2]
+        if int(nc) != int(p_nc) or int(ns) != int(p_ns):
+            dep_indices.append(i)
+    if not dep_indices:
+        return []
+    out: list[tuple[float, float, float]] = []
+    for di in range(len(dep_indices)):
+        idx = dep_indices[di]
+        ts, nc, ns = rate_history[idx]
+        j = di
+        dep_in_window = 0
+        while j > 0 and dep_in_window < window:
+            j -= 1
+            p_idx = dep_indices[j]
+            n_idx = dep_indices[j + 1]
+            dep_in_window += (rate_history[n_idx][1] - rate_history[p_idx][1]) + (
+                rate_history[n_idx][2] - rate_history[p_idx][2]
+            )
+        if j == 0:
+            base_idx = dep_indices[0] - 1
+            if base_idx < 0:
+                t0, c0, s0 = rate_history[0]
+            else:
+                t0, c0, s0 = rate_history[base_idx]
+        else:
+            t0, c0, s0 = rate_history[dep_indices[j]]
+        dt = float(ts) - float(t0)
+        if dt <= 0:
+            continue
+        out.append(
+            (
+                float(ts),
+                round((int(nc) - int(c0)) / dt, 5),
+                round((int(ns) - int(s0)) / dt, 5),
+            )
+        )
+    return out
+
+
 class KpiCalculator:
     def __init__(
         self,
@@ -234,8 +284,8 @@ class KpiCalculator:
 
     def _append_sys_wip(self, ts: float) -> None:
         self.sys_wip_history.append((ts, self.sys_wip))
-
-    def _append_rate_point(self, ts: float) -> None:
+        # Keep departure cumulative series aligned with WIP trend timestamps so
+        # Completion/Scrap charts share the x-axis even before the first FINISH.
         self.sys_rate_history.append(
             (ts, self.num_completions, self.num_scraps)
         )
@@ -421,12 +471,11 @@ class KpiCalculator:
                 self._open_lap.discard(part_id)
                 self._clear_part_stage_state(part_id)
                 self.sys_wip = max(0, self.sys_wip - 1)
-                self._append_sys_wip(ts)
                 self.num_completions += 1
+                self._append_sys_wip(ts)
                 st = self.sys_start_time.get(part_id)
                 if st is not None:
                     self.finished_cycle_times.append(ts - st)
-                self._append_rate_point(ts)
             if _kpi_wip_debug_enabled():
                 print(
                     f"[KPI WIP-1 FINISH] part_id={part_id!r} had_open={had} "
@@ -441,12 +490,11 @@ class KpiCalculator:
                 self._open_lap.discard(part_id)
                 self._clear_part_stage_state(part_id)
                 self.sys_wip = max(0, self.sys_wip - 1)
-                self._append_sys_wip(ts)
                 self.num_scraps += 1
+                self._append_sys_wip(ts)
                 st = self.sys_start_time.get(part_id)
                 if st is not None:
                     self.scrapped_cycle_times.append(ts - st)
-                self._append_rate_point(ts)
             if _kpi_wip_debug_enabled():
                 print(
                     f"[KPI WIP-1 SCRAP] part_id={part_id!r} had_open={had} "
@@ -658,6 +706,12 @@ class KpiCalculator:
             [float(ts), int(nc), int(ns)]
             for ts, nc, ns in self.sys_rate_history[-200:]
         ]
+        trend_throughput_rates: list[list[float]] = [
+            [ts, comp_r, scrap_r]
+            for ts, comp_r, scrap_r in _rolling_departure_throughput_rates(
+                self.sys_rate_history[-200:]
+            )
+        ]
         _fct_cap = self.finished_cycle_times[-1000:]
         trend_finished_cycle_times: list[float] = [round(float(x), 4) for x in _fct_cap]
 
@@ -667,6 +721,7 @@ class KpiCalculator:
             "trend_sys_wip_history": trend_sys_wip_history,
             "trend_rate_history": trend_rate_history,
             "trend_departure_history": trend_departure_history,
+            "trend_throughput_rates": trend_throughput_rates,
             "trend_finished_cycle_times": trend_finished_cycle_times,
             # --- backward-compatible top-level keys (MQTT / tests) ---
             "throughput": complete_rate,
@@ -689,6 +744,7 @@ class KpiCalculator:
             "station_live": station_live,
             "simulation_time_iso": sim_time_iso,
             "chart_time_unix": chart_time_unix,
+            "observation_start_ts": self.observation_start_ts,
             "yield_rate": round(self.num_completions / departed, 4) if departed > 0 else 0.0,
             "duplicate_start_count": self.duplicate_start_count,
             "debug": {

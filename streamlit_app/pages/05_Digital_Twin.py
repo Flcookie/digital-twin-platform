@@ -12,10 +12,11 @@ ensure_paths()
 
 import streamlit as st
 
+import digital_twin_cache
 import factory_floor_plotly
+import factory_floor_sim
 import mqtt_backend
 import neo4j_backend
-import part_track_conformance
 import ui_live_refresh
 import ui_nav
 import ui_part_trace_panel
@@ -49,55 +50,39 @@ st.subheader("Factory Layout")
 @st.fragment(run_every=ui_live_refresh.live_ui_refresh_delta())
 def _digital_twin_synced():
     """单 fragment：地图与 Part Tracking 同一拍拉 Neo4j / session，避免两区错开刷新。"""
-    # 与 01 Realtime 同一套 session 解析（KPI、回放侧写、断线时 Neo4j），地图与 Part Tracking 用同一 `sess`。
     sess = mqtt_backend.resolve_digital_twin_neo4j_session_id()
-    neo = neo4j_backend.neo4j_status()
+    neo = neo4j_backend.neo4j_ping()
     kpi, _tupd = mqtt_backend.get_kpi_snapshot()
     is_replay = isinstance(kpi, dict) and (kpi.get("run_mode") or "") == "replay"
 
-    part_markers: list[dict] | None = None
+    floor_sim: dict | None = None
     status: str | None = None
     twin_preload_parts: list[dict] | None = None
+    twin_preload_rows: list[dict] | None = None
     twin_preload_sid: str | None = None
 
-    # 回放：地图与 Part Tracking 共用「按 chart_time_unix 截断后的 parts」；取每 part **最后工步** 做
-    # (component_id, activity) → SEQ_MAP（与 code/monitoring 事件流一致）。仅用 station_live 会漏运输途中的 part。
-    if is_replay and neo.get("connected"):
-        _pd = neo4j_backend.query_part_flow(None, sess)
-        if not _pd.get("error"):
-            twin_preload_parts = part_track_conformance.filter_parts_to_replay_kpi_progress(
-                _pd.get("parts") or [], kpi
+    floor_sim, status = factory_floor_sim.sync_factory_floor_sim(
+        sess,
+        is_replay=is_replay,
+        kpi=kpi,
+        neo_connected=bool(neo.get("connected")),
+    )
+
+    if neo.get("connected") and sess:
+        twin_preload_parts, twin_preload_rows, twin_preload_sid = (
+            digital_twin_cache.resolve_twin_part_trace(
+                sess,
+                is_replay=is_replay,
+                kpi=kpi,
+                neo_connected=True,
             )
-            twin_preload_sid = _pd.get("session_id")
-            _m = factory_floor_plotly.part_markers_from_parts_last_step(
-                twin_preload_parts
-            )
-            part_markers = _m if _m else None
-        if not part_markers:
-            part_markers = factory_floor_plotly.part_markers_from_kpi_station_live(
-                kpi
-            ) or None
-    elif is_replay:
-        part_markers = factory_floor_plotly.part_markers_from_kpi_station_live(
-            kpi
-        ) or None
-    elif not neo.get("connected"):
-        status = "Neo4j not connected — cannot load part positions."
-    else:
-        markers, meta = neo4j_backend.get_session_parts_latest_locations(
-            sess, limit=120
         )
-        err = meta.get("error")
-        if err and err != "No session in graph.":
-            status = "Neo4j: **{}**".format(err)
-        elif not err and markers:
-            part_markers = markers
 
     if status:
         st.markdown(status)
 
-    with st.container(key="digital_twin_factory_map"):
-        _fig = factory_floor_plotly.build_factory_floor_figure(part_markers=part_markers)
+    with st.container(border=True):
+        _fig = factory_floor_plotly.build_factory_floor_figure(sim_state=floor_sim)
         st.plotly_chart(
             _fig,
             use_container_width=True,
@@ -115,6 +100,7 @@ def _digital_twin_synced():
             coordinated_twin_session_id=sess,
             kpi_for_replay=kpi,
             twin_preloaded_parts=twin_preload_parts,
+            twin_preloaded_rows=twin_preload_rows,
             twin_preloaded_session_id=twin_preload_sid,
         )
 

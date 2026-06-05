@@ -22,67 +22,26 @@ import ui_replay_panel
 @st.dialog("Control Runs", width="large")
 def _service_logs_unified_dialog() -> None:
     """Control run history (Start/Stop/Shutdown/System and related actions)."""
-    _h_r1, _h_r2 = st.columns([4, 1])
-    with _h_r1:
-        st.caption("完整控制动作记录（Start/Stop/Shutdown/System）")
-    with _h_r2:
-        if st.button("Refresh", key="home_dlg_log_refresh_hist", type="secondary"):
-            st.rerun()
-
     hist = process_control.read_control_action_history(80)
     if not hist:
-        st.info("暂无控制动作记录。")
+        st.info("暂无记录。点击 Start Programs 后，本轮控制动作会显示在此。")
     else:
-        for i, row in enumerate(hist):
+        for i, row in enumerate(reversed(hist)):
             cmd = str(row.get("cmd") or "—")
             tm = str(row.get("time_full") or row.get("time") or "")
-            ok = row.get("success")
-            icon = "✓" if ok is True else ("✗" if ok is False else "—")
-            status = "successful" if ok is True else ("failed" if ok is False else "unknown")
+            status = process_control.control_action_status_label(row)
+            icon = (
+                "✓"
+                if status == "successful"
+                else ("✗" if status == "failed" else "—")
+            )
             title = "{} {} · {} · {}".format(icon, cmd, tm, status)
             with st.expander(title, expanded=(i == 0)):
-                msg = (row.get("message") or "").strip()
-                if msg:
-                    st.caption(msg)
-                prog = row.get("progress") if isinstance(row.get("progress"), dict) else {}
-                comps = prog.get("components") if isinstance(prog, dict) else {}
-                if isinstance(comps, dict) and comps:
-                    st.caption(
-                        "{} · {} · {}".format(
-                            prog.get("operation", "—"),
-                            prog.get("updated_at", "—"),
-                            prog.get("status", "—"),
-                        )
-                    )
-                    for k in sorted(comps.keys()):
-                        if k == "_error":
-                            continue
-                        info = comps.get(k) or {}
-                        c_ok = bool(info.get("ok"))
-                        c_icon = "✓" if c_ok else "✗"
-                        c_msg = (
-                            (info.get("message") or "")
-                            .replace("\r\n", "\n")
-                            .replace("\r", "\n")
-                            .strip()
-                        )
-                        st.markdown("**{}** — {}".format(k, c_icon))
-                        if c_msg:
-                            if c_ok:
-                                disp = (
-                                    " ".join(c_msg.split())
-                                    if "\n" in c_msg
-                                    else c_msg
-                                )
-                                st.caption(disp)
-                            else:
-                                st.code(c_msg, language=None)
-                        elif not c_ok:
-                            st.caption("Failed (no message)")
-                        else:
-                            st.caption("OK")
-                elif not msg:
-                    st.caption("(no extra details)")
+                body = process_control.format_control_action_record_body(row)
+                if body.strip():
+                    st.code(body, language=None)
+                else:
+                    st.caption("(no details)")
 
 
 def _render_live_section_header(status_html: str, *, logs_disabled: bool) -> None:
@@ -704,6 +663,17 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_kpi button:hover
     border-color: #cbd5e1 !important;
     box-shadow: none !important;
 }
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_replay_toggle button:disabled,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_import_btn button:disabled,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_log button:disabled,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_dl_kpi button:disabled,
+div[data-testid="stMainBlockContainer"] div.st-key-home_hist_ops_block [data-testid="stDownloadButton"] > button:disabled {
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+    color: #94a3b8 !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: none !important;
+}
 div[data-testid="stMainBlockContainer"] div.st-key-home_live_head_row {
     margin: -16px -16px 10px -16px !important;
     padding: 10px 14px 9px !important;
@@ -774,7 +744,8 @@ div[data-testid="stFileUploader"] section {
     background: #fafafa !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_kpi button,
-div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button {
+div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button,
+div[data-testid="stMainBlockContainer"] div.st-key-home_what_if button {
     min-height: 84px !important;
     height: 84px !important;
     width: 100% !important;
@@ -796,7 +767,8 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button {
     justify-content: center !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_kpi button p,
-div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button p {
+div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button p,
+div[data-testid="stMainBlockContainer"] div.st-key-home_what_if button p {
     font-family: var(--sans) !important;
     font-size: 20px !important;
     line-height: 1.05 !important;
@@ -804,7 +776,8 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button p {
     color: #1f2937 !important;
 }
 div[data-testid="stMainBlockContainer"] div.st-key-home_dash_kpi button:hover:not(:disabled),
-div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button:hover:not(:disabled) {
+div[data-testid="stMainBlockContainer"] div.st-key-home_dash_twin button:hover:not(:disabled),
+div[data-testid="stMainBlockContainer"] div.st-key-home_what_if button:hover:not(:disabled) {
     background: #f0f4f8 !important;
     border: 1px solid #c8d0da !important;
     border-bottom: 1px solid #c8d0da !important;
@@ -1058,7 +1031,7 @@ display:flex;align-items:center;gap:12px;">
             dh=desc_html,
         )
 
-    section_title("Data Source", "#64748b", accent="#64748b")
+    section_title("Mode", "#64748b", accent="#64748b")
     err = st.session_state.get("cp_config_load_error")
     if err:
         st.error("Failed to load config: **{}**".format(err))
@@ -1275,6 +1248,7 @@ motion[data-testid="stMainBlockContainer"] div.st-key-home_live_ops_block button
                             if not recording.is_recording():
                                 mqtt_backend.switch_config_file(_enf)
                                 time.sleep(1.0)
+                            process_control.reset_control_log_session()
                             process_control.run_script_background(
                                 "start_programs", enforce_config=_enf
                             )
@@ -1457,7 +1431,9 @@ div[data-testid="stMainBlockContainer"] div.st-key-home_hist_ops_block {
     # Other Services
     with st.container(border=True):
         section_title("Other Services", "#adb5bd", accent="#adb5bd")
-        st.markdown(
-            '<span style="font-size:16px;color:#adb5bd">Simulation — Coming Soon</span>',
-            unsafe_allow_html=True,
-        )
+        if st.button(
+            "What-if Analysis",
+            key="home_what_if",
+            use_container_width=True,
+        ):
+            st.switch_page("pages/what-if-analysis.py")
