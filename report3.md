@@ -2,7 +2,7 @@
 
 本文档说明当前仓库中 Streamlit 部分的整体功能、MQTT 通信方式、Neo4j 图数据库设计、Dashboard 与 KPI 计算、Digital Twin、Part Track、Conformance，以及 What-if Analysis 仿真实验逻辑。本文基于当前代码实现编写，重点对应 `mt-ems-pl` 装配线控制包和 `streamlit_app/` 前端监控系统。
 
-相对早期 What-if 说明（`report2.md`），本文已并入 `Config.txt` / Replications、Arena `WriteOutput` 公式语义，以及本地启动与 Neo4j 连接排错。
+相对早期 What-if 说明（本地归档 `doc/report2.md`），本文已并入 `Config.txt` / Replications、Arena `WriteOutput` 公式语义，以及本地启动与 Neo4j 连接排错。
 
 ## 1. 项目总体定位
 
@@ -1449,7 +1449,7 @@ What-if 图名与 Dashboard 相似，但定义不同（参见 §7.6）：
 2. `workers = min(逻辑核数, 点数)`，全核并行可能与本机 Dashboard / `main_service` 抢 CPU。
 3. 点数上限 15，避免一次实验过长。
 4. 只扫 `Input.txt` 七个参数之一；WarmUp / SimLength 需改 `Config.txt` 基准文件。
-5. 与 `report2.md` 中早期 What-if 说明相比，当前实现已接入 `Config.txt` 与页面 Replications；以本文 §11 为准。
+5. 与早期 What-if 说明（本地 `doc/report2.md`）相比，当前实现已接入 `Config.txt` 与页面 Replications；以本文 §11 为准。
 
 ## 12. 数据流总结
 

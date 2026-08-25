@@ -52,10 +52,11 @@ Frontend:
 
 ```bash
 run_streamlit.bat
+# or: run_web.bat   (same as run_streamlit)
 # or: set CONFIG_FILE=config.json && python -m streamlit run streamlit_app/app.py
 ```
 
-Open the Local URL printed by Streamlit (often `http://localhost:8501`).
+Open the Local URL printed by Streamlit (often `http://localhost:8501`). If that port is busy, pass `--server.port 8502` on the `streamlit run` command.
 
 ### What-if (Arena)
 
@@ -75,9 +76,12 @@ Page: **What-if Analysis** — set Parameter / From / To / Step / Replications, 
 |------|------|
 | `streamlit_app/` | Dashboard UI and Neo4j queries |
 | `main_service.py` / `event_pipeline.py` / `kpi_calculator.py` | Live ingest + KPI |
-| `mt-ems-pl/` | Controller code uploaded to the line |
+| `mt-ems-pl/` | Controller code uploaded to the line (local; not always in git) |
 | `model/` | Arena What-if model and inputs |
 | `report3.md` | Full technical report |
+| `doc/` | Local notes / older drafts (gitignored) |
+
+Do not commit `config.json`, `.env`, `event-logs/`, `*.pid`, or control-panel state JSON. A generated `README.pdf` is optional and gitignored.
 
 ---
 
