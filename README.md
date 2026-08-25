@@ -2,22 +2,88 @@
 
 Repository: [github.com/Flcookie/digital-twin-platform](https://github.com/Flcookie/digital-twin-platform)
 
-Local checkout may still use the folder name `lego-factory`. **Do not commit passwords.**
+Local checkout may still use the folder name `lego-factory`. **Do not commit passwords** (`config.json`, `.env`).
+
+A Streamlit console for the MOTOWN / MT-EMS-PL multi-station assembly line: live control and KPI monitoring over MQTT, event persistence in Neo4j, history replay, part trace / conformance, a Plotly digital twin floor, and offline What-if sensitivity runs via Arena/SIMAN.
+
+## Architecture (short)
+
+```text
+mt-ems-pl controllers  --MQTT events-->  main_service  --KPI MQTT-->  Streamlit
+                              |                            |
+                              +--Neo4j write---------------+--Neo4j query
+What-if:  model/Config.txt + Input.txt  ->  siman.exe  ->  Output.txt  ->  charts
+```
+
+## Features
+
+| Area | What you get |
+|------|----------------|
+| Control Panel | Live / History mode, start-stop line & programs, upload code/config |
+| KPI Dashboard | System / stage / station KPIs and trends from `main_service` |
+| History | Neo4j sessions, CSV import/export, session replay (sidecar KPI, not MQTT bus) |
+| Part Trace / Conformance | Paths, flow type, conformance labels |
+| Digital Twin | Factory layout + coordinated Part Trace |
+| What-if Analysis | Sweep WIP / buffer capacities; median over replications |
+
+Detailed design notes: [`report3.md`](report3.md).
+
+## Quick start (software)
 
 1. Copy `config.example.json` → `config.json` (and optionally `config_local.json` for replay).
 2. Copy `.env.example` → `.env` and set `NEO4J_PASSWORD` / `SSH_PASSWORD` if you use env overrides.
-3. Install and run:
+3. Start Neo4j locally (`bolt://localhost:7687`) so Desktop’s DBMS is **running**, not only open.
+4. Install and run:
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python -m streamlit run streamlit_app/app.py
 ```
+
+Backend (event buffer, Neo4j write, KPI publish):
+
+```bash
+run_main.bat
+# or: set CONFIG_FILE=config.json && python main_service.py
+```
+
+Frontend:
+
+```bash
+run_streamlit.bat
+# or: set CONFIG_FILE=config.json && python -m streamlit run streamlit_app/app.py
+```
+
+Open the Local URL printed by Streamlit (often `http://localhost:8501`).
+
+### What-if (Arena)
+
+Requires Rockwell Arena `siman.exe` (override with `ARENA_SIMAN_EXE` if needed) and a work folder with:
+
+```text
+model/model.p
+model/Input.txt      # 7 lines: WIP Limit + stage buffers
+model/Config.txt     # ReplicasNum, WarmUp, SimLength
+```
+
+Page: **What-if Analysis** — set Parameter / From / To / Step / Replications, then Run. Each point runs under `model/runs/pt_*`. Scrap on that page is an Arena **throughput rate**, not the Live KPI scrap **ratio** (see `report3.md` §7.6 / §11.8).
+
+## Repository layout (main)
+
+| Path | Role |
+|------|------|
+| `streamlit_app/` | Dashboard UI and Neo4j queries |
+| `main_service.py` / `event_pipeline.py` / `kpi_calculator.py` | Live ingest + KPI |
+| `mt-ems-pl/` | Controller code uploaded to the line |
+| `model/` | Arena What-if model and inputs |
+| `report3.md` | Full technical report |
 
 ---
 
 # **System Setup and Execution Guide**
+
+Physical lab setup (controllers, Wi-Fi, MobaXterm, upload scripts) continues below.
 
 ## **1. Prerequisites**
 
