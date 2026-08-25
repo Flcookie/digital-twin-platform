@@ -21,7 +21,7 @@ if _STREAMLIT_APP not in sys.path:
 
 import common  # noqa: E402
 import event_pipeline  # noqa: E402
-import neo4j_backend  # noqa: E402
+import services.neo4j_backend as neo4j_backend  # noqa: E402
 import neo4j_writer  # noqa: E402
 from replay_csv_direct import _write_kpi_state  # noqa: E402
 

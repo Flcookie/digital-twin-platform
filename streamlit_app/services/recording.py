@@ -16,7 +16,7 @@ from paths import PROJECT_ROOT, ensure_paths
 
 ensure_paths()
 import common  # noqa: E402
-import mqtt_backend  # noqa: E402
+import services.mqtt_backend as mqtt_backend  # noqa: E402
 
 
 def _logger_rec() -> logging.Logger:

@@ -5,8 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-import neo4j_backend
-import part_track_conformance as ptc
+import services.neo4j_backend as neo4j_backend
+import part_track.part_track_conformance as ptc
 
 _FLOOR_SESSION_KEY = "_dt_factory_floor_sim"
 _PART_FLOW_CACHE_KEY = "_dt_part_flow_cache"

@@ -170,7 +170,7 @@ def start_main_service(mode: str = "realtime") -> tuple[bool, str]:
     realtime → config.json；replay → 优先 config_local.json（若存在），否则 config.json。
     """
     global _main_service_process
-    import mqtt_backend
+    import services.mqtt_backend as mqtt_backend
 
     if is_main_service_running():
         return False, "main_service already running — stop it first"
@@ -227,7 +227,7 @@ def ensure_main_service_replay(*, wait_kpi_sec: float = 15.0) -> tuple[bool, str
     ``wait_kpi_sec`` is unused (kept for call-site compatibility).
     """
     _ = wait_kpi_sec
-    import mqtt_backend
+    import services.mqtt_backend as mqtt_backend
 
     if is_main_service_running():
         stop_main_service()
@@ -241,7 +241,7 @@ def ensure_main_service_replay(*, wait_kpi_sec: float = 15.0) -> tuple[bool, str
 
 def stop_main_service() -> tuple[int, str]:
     global _main_service_process
-    import mqtt_backend
+    import services.mqtt_backend as mqtt_backend
 
     n = kill_all_main_service_processes()
     _main_service_process = None
@@ -645,7 +645,7 @@ def get_system_status() -> str:
     if not is_main_service_running():
         return "stop"
     try:
-        import recording
+        import services.recording as recording
 
         if recording.is_recording():
             return "start"

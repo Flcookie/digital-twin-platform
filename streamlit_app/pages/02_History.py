@@ -13,8 +13,8 @@ ensure_paths()
 
 import streamlit as st  # noqa: E402
 
-import mqtt_backend  # noqa: E402
-import ui_sidebar  # noqa: E402
+import services.mqtt_backend as mqtt_backend  # noqa: E402
+import ui.sidebar as ui_sidebar  # noqa: E402
 
 st.set_page_config(
     page_title="History",

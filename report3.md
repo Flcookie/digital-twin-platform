@@ -36,28 +36,28 @@ Streamlit Dashboard
 Neo4j graph database
 
 What-if Analysis 独立调用:
-Streamlit -> siman_runner.py -> model/Input.txt + Config.txt -> siman.exe -> Output.txt -> Plotly charts
+Streamlit -> whatif/siman_runner.py -> model/Input.txt + Config.txt -> siman.exe -> Output.txt -> Plotly charts
 ```
 
 关键代码文件：
 
 | 文件 | 作用 |
 |---|---|
-| `streamlit_app/app.py`, `streamlit_app/main.py` | Streamlit 首页入口 |
-| `streamlit_app/ui_home.py` | Control Panel 首页：模式选择、现场控制、部署、History、页面跳转 |
-| `streamlit_app/mqtt_backend.py` | Streamlit 侧 MQTT 连接、KPI 订阅、控制命令发布、回放 KPI sidecar 读取 |
+| `streamlit_app/app.py` | Streamlit 首页入口 |
+| `streamlit_app/ui/home.py` | Control Panel 首页：模式选择、现场控制、部署、History、页面跳转 |
+| `streamlit_app/services/mqtt_backend.py` | Streamlit 侧 MQTT 连接、KPI 订阅、控制命令发布、回放 KPI sidecar 读取 |
 | `main_service.py` | MQTT 事件入口，周期打印/发布 KPI |
 | `event_pipeline.py` | EventBuffer + KPI + Neo4j 的共享流水线 |
 | `kpi_calculator.py` | 系统层、Stage 层、Station 层 KPI 公式和状态机 |
 | `neo4j_writer.py` | Neo4j 写入模型：Session、Event、Station、Entity、Activity |
-| `streamlit_app/neo4j_backend.py` | Streamlit 查询 Neo4j、导入导出、Part Flow、历史 KPI 重算 |
+| `streamlit_app/services/neo4j_backend.py` | Streamlit 查询 Neo4j、导入导出、Part Flow、历史 KPI 重算 |
 | `streamlit_app/pages/01_Realtime.py` | KPI Dashboard 页面 |
 | `streamlit_app/pages/05_Digital_Twin.py` | Digital Twin 页面 |
-| `streamlit_app/ui_part_trace_panel.py` | Part Trace 表格、详情、Conformance 展示 |
-| `streamlit_app/factory_floor_sim.py` | 根据 Neo4j 事件增量重建工厂布局状态 |
-| `streamlit_app/factory_floor_plotly.py` | Plotly 工厂平面图 |
-| `streamlit_app/ui_what_if_panel.py` | What-if 页面控件和图表 |
-| `streamlit_app/siman_runner.py` | Arena/SIMAN 参数扫描和 Output 解析 |
+| `streamlit_app/ui/part_trace_panel.py` | Part Trace 表格、详情、Conformance 展示 |
+| `streamlit_app/twin/factory_floor_sim.py` | 根据 Neo4j 事件增量重建工厂布局状态 |
+| `streamlit_app/twin/factory_floor_plotly.py` | Plotly 工厂平面图 |
+| `streamlit_app/ui/what_if_panel.py` | What-if 页面控件和图表 |
+| `streamlit_app/whatif/siman_runner.py` | Arena/SIMAN 参数扫描和 Output 解析 |
 | `mt-ems-pl/*` | 现场控制器程序和配置 |
 
 ## 2. `mt-ems-pl` 装配线现场程序
@@ -376,7 +376,7 @@ CREATE INDEX IF NOT EXISTS FOR (a:Activity) ON (a.name)
 
 ### 5.4 主要查询能力
 
-`streamlit_app/neo4j_backend.py` 提供以下能力：
+`streamlit_app/services/neo4j_backend.py` 提供以下能力：
 
 | 函数 | 作用 |
 |---|---|
@@ -395,14 +395,9 @@ CREATE INDEX IF NOT EXISTS FOR (a:Activity) ON (a.name)
 
 ### 6.1 首页 Control Panel
 
-入口是 `streamlit_app/app.py` 或 `streamlit_app/main.py`。这两个文件功能相同：
+入口是 `streamlit_app/app.py`。
 
-1. 调用 `ensure_paths()` 设置路径。
-2. 设置 Streamlit wide layout。
-3. 渲染侧栏和首页。
-4. 页面结束时确保 Neo4j index。
-
-首页实际逻辑在 `ui_home.render()`。
+首页实际逻辑在 `ui/home.py`（`ui.home.render()`）。
 
 首页主要分为四块：
 
@@ -485,7 +480,7 @@ publish system_status/master/all = STOP
 
 ### 6.3 History 页面/模块
 
-`pages/02_History.py` 只是跳转提示，实际 History 模块在首页 `ui_history_panel.render_history_panel()`。
+`pages/02_History.py` 只是跳转提示，实际 History 模块在首页 `ui.history_panel.render_history_panel()`。
 
 功能：
 
@@ -553,7 +548,7 @@ resolve session
 
 ### 6.7 What-if Analysis 页面
 
-入口：`pages/what-if-analysis.py`，实际逻辑在 `ui_what_if_panel.py` 和 `siman_runner.py`。
+入口：`pages/what-if-analysis.py`，实际逻辑在 `ui/what_if_panel.py` 和 `whatif/siman_runner.py`。
 
 功能：
 
@@ -892,9 +887,9 @@ Arena/SIMAN 输出 `Output.txt`，示例：
 当前 Digital Twin 页面使用 Plotly 工厂布局图，主要代码是：
 
 ```text
-factory_floor_sim.py
-factory_floor_plotly.py
-digital_twin_cache.py
+twin/factory_floor_sim.py
+twin/factory_floor_plotly.py
+twin/digital_twin_cache.py
 pages/05_Digital_Twin.py
 ```
 

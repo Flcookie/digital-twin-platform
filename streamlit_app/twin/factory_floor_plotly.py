@@ -472,7 +472,7 @@ def build_factory_floor_figure(
     fig = go.Figure(data=_static_figure_data())
 
     if sim_state is not None:
-        import factory_floor_sim
+        import twin.factory_floor_sim as factory_floor_sim
 
         pallets = factory_floor_sim.display_pallets_from_sim(sim_state)
     else:

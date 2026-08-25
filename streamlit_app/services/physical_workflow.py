@@ -12,8 +12,8 @@ def reset_realtime_dashboard_data(
     *, notify_main_service: bool = True, clear_graph: bool = True
 ) -> tuple[str, str]:
     """Clear KPI snapshot; optionally clear Neo4j graph and notify main_service."""
-    import mqtt_backend
-    import neo4j_backend
+    import services.mqtt_backend as mqtt_backend
+    import services.neo4j_backend as neo4j_backend
 
     try:
         mqtt_backend.clear_kpi_snapshot()
@@ -39,9 +39,9 @@ def reset_realtime_dashboard_data(
 
 
 def start_physical_line_integrated() -> tuple[bool, str]:
-    import mqtt_backend
-    import process_control
-    import recording
+    import services.mqtt_backend as mqtt_backend
+    import services.process_control as process_control
+    import services.recording as recording
 
     mqtt_backend.switch_config_file("config.json")
 
@@ -90,10 +90,10 @@ def start_physical_line_integrated() -> tuple[bool, str]:
 
 
 def stop_physical_line_integrated() -> tuple[bool, str]:
-    import mqtt_backend
-    import neo4j_backend
-    import process_control
-    import recording
+    import services.mqtt_backend as mqtt_backend
+    import services.neo4j_backend as neo4j_backend
+    import services.process_control as process_control
+    import services.recording as recording
 
     kpi, _ = mqtt_backend.get_kpi_snapshot()
     session_id = (kpi or {}).get("session_id")

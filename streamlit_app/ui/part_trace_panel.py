@@ -7,14 +7,14 @@ import time
 import pandas as pd
 import streamlit as st
 
-import flow_classification
-import flow_conformance_engine as fce
-import mqtt_backend
-import neo4j_backend
-import part_station_matrix
-import part_track_conformance
-import part_track_model
-import twin_layout
+import part_track.flow_classification as flow_classification
+import part_track.flow_conformance_engine as fce
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import part_track.part_station_matrix as part_station_matrix
+import part_track.part_track_conformance as part_track_conformance
+import part_track.part_track_model as part_track_model
+import twin.twin_layout as twin_layout
 
 
 def _twin_session_summary_column_names() -> list[str]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-import twin_layout
+import twin.twin_layout as twin_layout
 
 
 def mainline_track_columns() -> list[str]:

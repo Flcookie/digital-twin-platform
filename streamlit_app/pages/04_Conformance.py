@@ -12,8 +12,8 @@ ensure_paths()
 
 import streamlit as st
 
-import ui_conformance_panel
-import ui_sidebar
+import ui.conformance_panel as ui_conformance_panel
+import ui.sidebar as ui_sidebar
 
 st.set_page_config(
     page_title="Conformance",

@@ -8,7 +8,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 import streamlit as st
 
-from siman_runner import (
+from whatif.siman_runner import (
     PARAMETER_KEYS,
     default_work_folder,
     parameter_default,

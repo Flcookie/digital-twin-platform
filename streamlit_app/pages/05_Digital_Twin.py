@@ -12,15 +12,15 @@ ensure_paths()
 
 import streamlit as st
 
-import digital_twin_cache
-import factory_floor_plotly
-import factory_floor_sim
-import mqtt_backend
-import neo4j_backend
-import ui_live_refresh
-import ui_nav
-import ui_part_trace_panel
-import ui_sidebar
+import twin.digital_twin_cache as digital_twin_cache
+import twin.factory_floor_plotly as factory_floor_plotly
+import twin.factory_floor_sim as factory_floor_sim
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import ui.live_refresh as ui_live_refresh
+import ui.nav as ui_nav
+import ui.part_trace_panel as ui_part_trace_panel
+import ui.sidebar as ui_sidebar
 
 st.set_page_config(
     page_title="Digital Twin",

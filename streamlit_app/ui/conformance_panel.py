@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import streamlit as st
 
-import flow_classification
-import mqtt_backend
-import neo4j_backend
-import part_track_model
+import part_track.flow_classification as flow_classification
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import part_track.part_track_model as part_track_model
 
 
 def _is_subsequence(needle: list[str], haystack: list[str]) -> bool:

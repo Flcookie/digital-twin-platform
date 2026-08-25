@@ -6,7 +6,7 @@ import html as html_module
 import re
 from typing import Any, TypedDict
 
-import flow_conformance_engine as fce
+import part_track.flow_conformance_engine as fce
 
 
 def _natural_part_id_key(pid: str) -> tuple:

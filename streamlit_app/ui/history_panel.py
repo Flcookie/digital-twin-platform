@@ -8,11 +8,11 @@ import time
 
 import streamlit as st
 
-import mqtt_backend
-import neo4j_backend
-import process_control
-import recording
-import ui_replay_panel
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import services.process_control as process_control
+import services.recording as recording
+import ui.replay_panel as ui_replay_panel
 from paths import PROJECT_ROOT
 
 # Selectbox 内部值；展示文案为「--Select Session--」

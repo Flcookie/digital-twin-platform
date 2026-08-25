@@ -14,11 +14,11 @@ import time
 
 import streamlit as st
 
-import mqtt_backend
-import neo4j_backend
-import ui_kpi_display
-import ui_live_refresh
-import ui_sidebar
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import ui.kpi_display as ui_kpi_display
+import ui.live_refresh as ui_live_refresh
+import ui.sidebar as ui_sidebar
 
 st.set_page_config(
     page_title="KPI Dashboard",

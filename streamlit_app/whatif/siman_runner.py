@@ -53,7 +53,8 @@ class SweepResult:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    # streamlit_app/whatif/siman_runner.py -> repo root
+    return Path(__file__).resolve().parents[2]
 
 
 def default_work_folder() -> Path:

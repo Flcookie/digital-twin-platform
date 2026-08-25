@@ -74,7 +74,13 @@ Page: **What-if Analysis** — set Parameter / From / To / Step / Replications, 
 
 | Path | Role |
 |------|------|
-| `streamlit_app/` | Dashboard UI and Neo4j queries |
+| `streamlit_app/app.py` | Streamlit entry (Home / Control Panel) |
+| `streamlit_app/pages/` | KPI, History, Part Trace, Conformance, Digital Twin, What-if |
+| `streamlit_app/ui/` | UI panels and shell |
+| `streamlit_app/services/` | MQTT, Neo4j queries, recording, line control helpers |
+| `streamlit_app/twin/` | Factory floor Plotly sim / layout cache |
+| `streamlit_app/part_track/` | Flow / conformance / part models |
+| `streamlit_app/whatif/` | Arena SIMAN parameter sweep |
 | `main_service.py` / `event_pipeline.py` / `kpi_calculator.py` | Live ingest + KPI |
 | `mt-ems-pl/` | Controller code uploaded to the line (local; not always in git) |
 | `model/` | Arena What-if model and inputs |

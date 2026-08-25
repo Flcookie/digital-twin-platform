@@ -12,9 +12,9 @@ ensure_paths()
 
 import streamlit as st
 
-import ui_nav
-import ui_part_trace_panel
-import ui_sidebar
+import ui.nav as ui_nav
+import ui.part_trace_panel as ui_part_trace_panel
+import ui.sidebar as ui_sidebar
 
 st.set_page_config(
     page_title="Part Trace",

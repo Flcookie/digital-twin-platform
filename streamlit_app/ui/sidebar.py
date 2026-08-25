@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-import mqtt_backend
-import neo4j_backend
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
 
 _NEO4J_INDEX_SESSION_KEY = "_neo4j_index_report"
 

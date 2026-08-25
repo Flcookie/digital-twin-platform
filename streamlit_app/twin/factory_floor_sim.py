@@ -5,8 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-import factory_floor_plotly
-import neo4j_backend
+import twin.factory_floor_plotly as factory_floor_plotly
+import services.neo4j_backend as neo4j_backend
 
 _SESSION_KEY = "_dt_factory_floor_sim"
 

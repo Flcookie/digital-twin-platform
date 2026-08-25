@@ -11,12 +11,12 @@ import streamlit as st
 
 from paths import PROJECT_ROOT
 
-import mqtt_backend
-import physical_workflow
-import process_control
-import recording
-import ui_history_panel
-import ui_replay_panel
+import services.mqtt_backend as mqtt_backend
+import services.physical_workflow as physical_workflow
+import services.process_control as process_control
+import services.recording as recording
+import ui.history_panel as ui_history_panel
+import ui.replay_panel as ui_replay_panel
 
 
 @st.dialog("Control Runs", width="large")

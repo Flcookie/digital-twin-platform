@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import twin_layout
+import twin.twin_layout as twin_layout
 
 OUTCOME_SCRAP = "scrap"
 OUTCOME_REWORK = "rework"

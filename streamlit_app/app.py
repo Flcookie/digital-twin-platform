@@ -22,8 +22,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-import ui_home  # noqa: E402
-import ui_sidebar  # noqa: E402
+import ui.home as ui_home  # noqa: E402
+import ui.sidebar as ui_sidebar  # noqa: E402
 
 ui_sidebar.render_shell(page="Home")
 ui_home.render()

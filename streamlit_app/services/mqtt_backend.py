@@ -149,7 +149,7 @@ def get_replay_pipeline_session_id() -> str | None:
 
 def resolve_digital_twin_neo4j_session_id() -> str | None:
     """Same Neo4j session as the active KPI: MQTT / ``.replay_kpi`` / history pick / offline snapshot (as 01_Realtime)."""
-    import neo4j_backend
+    import services.neo4j_backend as neo4j_backend
     import streamlit as st  # noqa: PLC0415
 
     kpi, _ = get_kpi_snapshot()
@@ -198,7 +198,7 @@ def clear_kpi_snapshot():
 def switch_config_file(filename: str):
     """切换 CONFIG_FILE、重连 MQTT、关闭 Neo4j driver 缓存（下次查询用新库配置）。"""
     global _cfg, _started, _dash_client, _mqtt_kpi_connected, _kpi_connect_ts
-    import neo4j_backend
+    import services.neo4j_backend as neo4j_backend
 
     os.environ["CONFIG_FILE"] = filename
     _cfg = None

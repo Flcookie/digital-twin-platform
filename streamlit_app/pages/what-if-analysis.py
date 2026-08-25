@@ -12,8 +12,8 @@ ensure_paths()
 
 import streamlit as st
 
-import ui_sidebar
-import ui_what_if_panel
+import ui.sidebar as ui_sidebar
+import ui.what_if_panel as ui_what_if_panel
 
 st.set_page_config(
     page_title="What-if Analysis",

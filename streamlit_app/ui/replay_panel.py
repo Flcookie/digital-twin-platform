@@ -11,11 +11,11 @@ import streamlit as st
 
 from paths import PROJECT_ROOT
 
-import mqtt_backend
-import neo4j_backend
-import process_control
-import recording
-import ui_live_refresh
+import services.mqtt_backend as mqtt_backend
+import services.neo4j_backend as neo4j_backend
+import services.process_control as process_control
+import services.recording as recording
+import ui.live_refresh as ui_live_refresh
 
 
 def ensure_replay_session_state() -> None:
