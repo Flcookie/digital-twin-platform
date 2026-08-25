@@ -20,7 +20,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-ui_sidebar.render(page="04 Conformance")
+ui_sidebar.render_shell(page="04 Conformance")
 
 st.title("Conformance")
 ui_conformance_panel.render_conformance_panel()
+ui_sidebar.finalize_neo4j_indexes()

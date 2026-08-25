@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-ui_sidebar.render(page="03 Part trace")
+ui_sidebar.render_shell(page="03 Part trace")
 
 if ui_nav.UI_NAV_PART_ID in st.session_state:
     _v = st.session_state.pop(ui_nav.UI_NAV_PART_ID)
@@ -30,3 +30,4 @@ if ui_nav.UI_NAV_PART_ID in st.session_state:
 
 st.title("Part trace")
 ui_part_trace_panel.render_part_trace_panel(from_query_params=True)
+ui_sidebar.finalize_neo4j_indexes()

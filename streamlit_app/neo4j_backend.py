@@ -4,9 +4,12 @@ from __future__ import annotations
 import csv
 import datetime
 import io
+import logging
 import re
 import sys
 import threading
+
+_log = logging.getLogger(__name__)
 
 from paths import ensure_paths
 
@@ -84,7 +87,8 @@ def get_driver():
                 cfg["uri"],
                 auth=(cfg["username"], cfg["password"]),
                 max_connection_pool_size=50,
-                connection_acquisition_timeout=25.0,
+                connection_timeout=5.0,
+                connection_acquisition_timeout=5.0,
             )
         return _driver
 
@@ -174,22 +178,20 @@ def list_sessions_enriched(limit: int = 40) -> list[dict]:
                 """
                 MATCH (s:Session)
                 OPTIONAL MATCH (e:Event)-[:IN_SESSION]->(s)
-                WITH s, e
-                ORDER BY e.timestamp ASC
-                WITH s, collect(e) AS evs
-                WITH s, [x IN evs WHERE x IS NOT NULL] AS elist
-                WITH s, elist,
-                  size(elist) AS ec,
-                  head(elist) AS first_ev,
-                  CASE WHEN size(elist) > 0 THEN elist[size(elist) - 1] END AS last_ev
+                WITH s,
+                  count(e) AS ec,
+                  min(e.time) AS first_ev_time,
+                  max(e.time) AS last_ev_time,
+                  min(e.timestamp) AS first_ts,
+                  max(e.timestamp) AS last_ts
                 RETURN s.id AS id,
                   s.start_time AS start_prop,
                   s.end_time AS end_prop,
                   ec AS event_count_live,
-                  first_ev.time AS first_ev_time,
-                  last_ev.time AS last_ev_time,
-                  first_ev.timestamp AS first_ts,
-                  last_ev.timestamp AS last_ts
+                  first_ev_time,
+                  last_ev_time,
+                  first_ts,
+                  last_ts
                 ORDER BY coalesce(last_ts, first_ts, 0.0) DESC
                 LIMIT $lim
                 """,
@@ -407,6 +409,28 @@ def find_csv_import_duplicate(first_event_time: str, event_count: int) -> str | 
     return info["id"] if info and info.get("id") else None
 
 
+def count_session_events(session_id: str) -> int:
+    """Fast IN_SESSION event count for one session (replay gate / UI validation)."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return 0
+    try:
+        d = get_driver()
+        with d.session() as s:
+            r = s.run(
+                """
+                MATCH (e:Event)-[:IN_SESSION]->(sess:Session {id: $sid})
+                RETURN count(e) AS c
+                """,
+                sid=sid,
+            )
+            rec = r.single()
+            return int(rec["c"]) if rec and rec["c"] is not None else 0
+    except Exception as ex:
+        _log.warning("count_session_events(%s) failed: %s", sid, ex)
+        return -1
+
+
 def fetch_session_events_log_format(session_id: str) -> list[dict]:
     """Ordered events as dicts compatible with KPI / CSV (time, component_id, part_id, activity)."""
     sid = (session_id or "").strip()
@@ -422,8 +446,14 @@ def fetch_session_events_log_format(session_id: str) -> list[dict]:
                 OPTIONAL MATCH (e)-[:OF_ACTIVITY]->(a:Activity)
                 OPTIONAL MATCH (e)-[:ACTS_ON]->(en:Entity)
                 RETURN coalesce(
-                    e.time,
-                    toString(datetime({epochSeconds: toInteger(toFloat(e.timestamp))}))
+                    nullif(e.time, ''),
+                    CASE
+                      WHEN e.timestamp IS NOT NULL
+                      THEN toString(
+                        datetime({epochSeconds: toInteger(toFloat(e.timestamp))})
+                      )
+                      ELSE ''
+                    END
                   ) AS time,
                   coalesce(e.component_id, st.sysId, '') AS component_id,
                   coalesce(e.part_id, en.sysId, '') AS part_id,
@@ -444,7 +474,8 @@ def fetch_session_events_log_format(session_id: str) -> list[dict]:
                     }
                 )
             return out
-    except Exception:
+    except Exception as ex:
+        _log.warning("fetch_session_events_log_format(%s) failed: %s", sid, ex)
         return []
 
 

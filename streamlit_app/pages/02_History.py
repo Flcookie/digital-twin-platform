@@ -22,9 +22,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 mqtt_backend.ensure_started()
-ui_sidebar.render(page="02 History")
+ui_sidebar.render_shell(page="02 History")
 
 st.info(
     "**HISTORY** (import / replay / export) is on the **Control panel** home page."
 )
 st.page_link("app.py", label="← DASHBOARD", use_container_width=True)
+ui_sidebar.finalize_neo4j_indexes()

@@ -25,8 +25,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-mqtt_backend.ensure_started()
-ui_sidebar.render(page="01 KPI")
+ui_sidebar.render_shell(page="01 KPI")
 
 st.title("KPI Dashboard")
 st.page_link("app.py", label="← DASHBOARD", icon="🏠")
@@ -63,3 +62,4 @@ def _kpi_fragment():
 
 
 _kpi_fragment()
+ui_sidebar.finalize_neo4j_indexes()

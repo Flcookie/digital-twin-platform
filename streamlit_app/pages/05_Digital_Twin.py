@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 mqtt_backend.ensure_started()
-ui_sidebar.render(page="05 Digital Twin")
+ui_sidebar.render_shell(page="05 Digital Twin")
 
 if "dt_q_injected" not in st.session_state:
     st.session_state.dt_q_injected = True
@@ -107,3 +107,4 @@ def _digital_twin_synced():
 
 _digital_twin_synced()
 ui_part_trace_panel.render_pending_complete_trace_dialog()
+ui_sidebar.finalize_neo4j_indexes()

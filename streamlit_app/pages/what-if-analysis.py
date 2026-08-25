@@ -20,9 +20,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-ui_sidebar.render(page="What-if Analysis")
+ui_sidebar.render_shell(page="What-if Analysis")
 
 st.title("What-if Analysis")
 st.page_link("app.py", label="← DASHBOARD", icon="🏠")
 
 ui_what_if_panel.render_what_if_panel()
+ui_sidebar.finalize_neo4j_indexes()

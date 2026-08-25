@@ -20,6 +20,28 @@ _HIST_SESSION_PLACEHOLDER = "__hist_session_placeholder__"
 _SESSION_SELECT_DISPLAY = "--Select Session--"
 
 
+def _resolve_history_session_id(
+    session_key: str,
+    export_key: str,
+    sel_ids: list[str],
+    id_to_label: dict[str, str] | None = None,
+) -> str | None:
+    """Resolve the active History session id from widget / export state."""
+    for raw in (st.session_state.get(session_key), st.session_state.get(export_key)):
+        if not isinstance(raw, str):
+            continue
+        sid = raw.strip()
+        if not sid or sid == _HIST_SESSION_PLACEHOLDER:
+            continue
+        if sid in sel_ids:
+            return sid
+        if id_to_label:
+            for known_id, label in id_to_label.items():
+                if sid == label:
+                    return known_id
+    return None
+
+
 def _import_feedback_key(kp: str) -> str:
     return "{}_import_feedback".format(kp)
 
@@ -277,6 +299,12 @@ def _cached_export_kpi_csv(session_id: str) -> bytes:
     return neo4j_backend.export_session_kpi_log_csv(session_id).encode("utf-8")
 
 
+def _clear_history_caches() -> None:
+    _cached_sessions_enriched.clear()
+    _cached_export_events_csv.clear()
+    _cached_export_kpi_csv.clear()
+
+
 def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) -> None:
     """All widget keys are prefixed to avoid clashes when embedded.
 
@@ -301,7 +329,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
     if d:
         st.session_state[_sess_key] = _HIST_SESSION_PLACEHOLDER
     else:
-        status = neo4j_backend.neo4j_status()
+        status = neo4j_backend.neo4j_ping()
         if not status.get("connected"):
             st.error(
                 "Database not connected: **{}**".format(status.get("error", "unknown"))
@@ -356,6 +384,13 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
     _sess_options = (
         [_HIST_SESSION_PLACEHOLDER] + sel_ids if sel_ids else [_HIST_SESSION_PLACEHOLDER]
     )
+    _export_sid_key = "{}_export_session_id".format(kp)
+    if not d and sel_ids:
+        _resolved_pre = _resolve_history_session_id(
+            _sess_key, _export_sid_key, sel_ids, id_to_label
+        )
+        if _resolved_pre:
+            st.session_state[_sess_key] = _resolved_pre
 
     def _format_session_option(sid: str) -> str:
         if sid == _HIST_SESSION_PLACEHOLDER:
@@ -373,12 +408,9 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
     )
 
     _raw_sel = st.session_state.get(_sess_key)
-    chosen_id: str | None = (
-        _raw_sel
-        if isinstance(_raw_sel, str) and _raw_sel in sel_ids
-        else None
+    chosen_id: str | None = _resolve_history_session_id(
+        _sess_key, _export_sid_key, sel_ids, id_to_label
     )
-    _export_sid_key = "{}_export_session_id".format(kp)
     if isinstance(_raw_sel, str) and _raw_sel == _HIST_SESSION_PLACEHOLDER:
         st.session_state.pop(_export_sid_key, None)
     elif chosen_id:
@@ -396,9 +428,6 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
         kpi_csv = _cached_export_kpi_csv(export_sid)
 
     _can_start = bool(chosen_id) and not _rec_on and not _replay_live and not d
-
-    if not d and not sel_ids:
-        st.caption("No sessions yet — import a CSV in the section below.")
 
     with st.container(key="{}_hist_toolbar".format(kp)):
         c_speed, c2, c3, c4 = st.columns(
@@ -434,39 +463,50 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                     disabled=not _can_start,
                     use_container_width=True,
                 ):
-                    st.session_state[_export_sid_key] = chosen_id
-                    evs = neo4j_backend.fetch_session_events_log_format(chosen_id)
-                    if not evs:
-                        st.error("No events in this session.")
+                    replay_sid = _resolve_history_session_id(
+                        _sess_key, _export_sid_key, sel_ids, id_to_label
+                    )
+                    if not replay_sid:
+                        st.error("Choose a session first.")
                     else:
-                        ui_replay_panel._clear_replay_child_and_temp_file()
-                        _ok_ms, _ms_msg = process_control.ensure_main_service_replay()
-                        if not _ok_ms:
-                            st.error(_ms_msg)
-                        else:
-                            _abort = False
-                            _local = os.path.normpath(
-                                os.path.join(PROJECT_ROOT, "config_local.json")
+                        st.session_state[_export_sid_key] = replay_sid
+                        n_events = neo4j_backend.count_session_events(replay_sid)
+                        if n_events < 0:
+                            st.error(
+                                "Could not read events from the database. "
+                                "Check Neo4j connection and try again."
                             )
-                            if os.path.isfile(_local):
-                                try:
-                                    mqtt_backend.switch_config_file("config_local.json")
-                                    time.sleep(2)
-                                except Exception as e:
-                                    st.error(
-                                        "Failed to switch local config: {}".format(e)
-                                    )
-                                    _abort = True
-                            if not _abort:
-                                ui_replay_panel._reset_replay_downstream_for_new_run()
-                                try:
-                                    st.session_state.replay_proc = (
-                                        mqtt_backend.run_replay_session_subprocess(
-                                            chosen_id, speed
+                        elif n_events <= 0:
+                            st.error("No events in this session.")
+                        else:
+                            ui_replay_panel._clear_replay_child_and_temp_file()
+                            _ok_ms, _ms_msg = process_control.ensure_main_service_replay()
+                            if not _ok_ms:
+                                st.error(_ms_msg)
+                            else:
+                                _abort = False
+                                _local = os.path.normpath(
+                                    os.path.join(PROJECT_ROOT, "config_local.json")
+                                )
+                                if os.path.isfile(_local):
+                                    try:
+                                        mqtt_backend.switch_config_file("config_local.json")
+                                        time.sleep(2)
+                                    except Exception as e:
+                                        st.error(
+                                            "Failed to switch local config: {}".format(e)
                                         )
-                                    )
-                                except Exception as ex:
-                                    st.error(str(ex))
+                                        _abort = True
+                                if not _abort:
+                                    ui_replay_panel._reset_replay_downstream_for_new_run()
+                                    try:
+                                        st.session_state.replay_proc = (
+                                            mqtt_backend.run_replay_session_subprocess(
+                                                replay_sid, speed
+                                            )
+                                        )
+                                    except Exception as ex:
+                                        st.error(str(ex))
             _rp_show = st.session_state.get("replay_proc")
             if _rp_show is not None and _rp_show.poll() is None:
                 st.markdown(
@@ -607,6 +647,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                                         n_ev
                                     ),
                                 }
+                                _clear_history_caches()
                                 st.rerun()
                             except Exception as ex:
                                 st.session_state[_ifb] = {
@@ -671,6 +712,7 @@ def render_history_panel(*, key_prefix: str = "hist", disabled: bool = False) ->
                                 n_ev
                             ),
                         }
+                        _clear_history_caches()
                         st.rerun()
                     except Exception as ex:
                         st.session_state[_ifb] = {

@@ -19,13 +19,15 @@ ensure_paths()
 
 import streamlit as st  # noqa: E402
 
-import ui_home  # noqa: E402
-import ui_sidebar  # noqa: E402
-
 st.set_page_config(
     page_title="LEGO Factory",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-ui_sidebar.render(page="Home")
+
+import ui_home  # noqa: E402
+import ui_sidebar  # noqa: E402
+
+ui_sidebar.render_shell(page="Home")
 ui_home.render()
+ui_sidebar.finalize_neo4j_indexes()

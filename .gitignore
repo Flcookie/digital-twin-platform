@@ -49,9 +49,20 @@ buildhat/
 ev3dev/
 pia-tutorial/
 
-# --- Markdown: only README goes to GitHub ---
+# --- Markdown: README + project reports ---
 *.md
 !README.md
+!report3.md
+
+# --- Arena what-if: keep model inputs; ignore run artifacts ---
+model/runs/
+model/_siman_test/
+model/*.db
+model/*.out
+model/*.opw
+model/*.bak
+model/*_rpt.xlsm
+model/Output.txt
 
 # --- Local-only: docs, legacy code, lab lines, README screenshots ---
 doc/
